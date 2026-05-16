@@ -208,9 +208,6 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                 <Button className={view === "chat" ? "sidebar-command active" : "sidebar-command"} icon={<MessageOutlined />} type="text" onClick={() => setView("chat")}>
                   会话
                 </Button>
-                <Button className={view === "settings" ? "sidebar-command active" : "sidebar-command"} icon={<SettingOutlined />} type="text" onClick={() => setView("settings")}>
-                  设置
-                </Button>
                 {view === "chat" ? (
                   <>
                     <Flex justify="space-between" align="center" className="session-heading">
@@ -299,15 +296,6 @@ function SettingsView({ api, user }: { api: ApiClient; user: AuthResponse["user"
   const [credentials, setCredentials] = useState<ModelCredentialStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingProvider, setSavingProvider] = useState<ModelCredentialProvider>();
-  const [forms] = useState(() => new Map<ModelCredentialProvider, ReturnType<typeof Form.useForm>[0]>());
-
-  const getForm = (provider: ModelCredentialProvider) => {
-    const existing = forms.get(provider);
-    if (existing) return existing;
-    const [form] = Form.useForm();
-    forms.set(provider, form);
-    return form;
-  };
 
   const reload = async () => {
     setLoading(true);
@@ -329,10 +317,11 @@ function SettingsView({ api, user }: { api: ApiClient; user: AuthResponse["user"
     try {
       const next = await api.setModelCredential(provider, values.apiKey.trim());
       setCredentials(next);
-      getForm(provider).resetFields();
       message.success("API key 已保存");
+      return true;
     } catch (error) {
       message.error(error instanceof Error ? error.message : "保存失败");
+      return false;
     } finally {
       setSavingProvider(undefined);
     }
@@ -367,30 +356,46 @@ function SettingsView({ api, user }: { api: ApiClient; user: AuthResponse["user"
           loading={loading}
           dataSource={credentials}
           renderItem={(item) => {
-            const form = getForm(item.provider);
             return (
-              <List.Item className="credential-row">
-                <div className="credential-copy">
-                  <Typography.Text strong>{item.label}</Typography.Text>
-                  <Tag color={item.configured ? "success" : "default"}>{item.configured ? "已保存" : "未设置"}</Tag>
-                </div>
-                <Form form={form} className="credential-form" layout="inline" onFinish={(values) => save(item.provider, values as { apiKey: string })}>
-                  <Form.Item name="apiKey" rules={[{ required: true, min: 8, message: "请输入 API key" }]}>
-                    <Input.Password placeholder={item.configured ? "输入新 key 以覆盖" : "粘贴 API key"} autoComplete="off" />
-                  </Form.Item>
-                  <Button htmlType="submit" type="primary" loading={savingProvider === item.provider}>
-                    保存
-                  </Button>
-                  <Button disabled={!item.configured} loading={savingProvider === item.provider} onClick={() => remove(item.provider)}>
-                    移除
-                  </Button>
-                </Form>
-              </List.Item>
+              <CredentialRow
+                item={item}
+                saving={savingProvider === item.provider}
+                onSave={(values) => save(item.provider, values)}
+                onRemove={() => remove(item.provider)}
+              />
             );
           }}
         />
       </div>
     </section>
+  );
+}
+
+function CredentialRow({ item, saving, onSave, onRemove }: { item: ModelCredentialStatus; saving: boolean; onSave: (values: { apiKey: string }) => Promise<boolean>; onRemove: () => Promise<void> }) {
+  const [form] = Form.useForm();
+
+  const submit = async (values: { apiKey: string }) => {
+    if (await onSave(values)) form.resetFields();
+  };
+
+  return (
+    <List.Item className="credential-row">
+      <div className="credential-copy">
+        <Typography.Text strong>{item.label}</Typography.Text>
+        <Tag color={item.configured ? "success" : "default"}>{item.configured ? "已保存" : "未设置"}</Tag>
+      </div>
+      <Form form={form} className="credential-form" layout="inline" onFinish={submit}>
+        <Form.Item name="apiKey" rules={[{ required: true, min: 8, message: "请输入 API key" }]}>
+          <Input.Password placeholder={item.configured ? "输入新 key 以覆盖" : "粘贴 API key"} autoComplete="off" />
+        </Form.Item>
+        <Button htmlType="submit" type="primary" loading={saving}>
+          保存
+        </Button>
+        <Button disabled={!item.configured} loading={saving} onClick={onRemove}>
+          移除
+        </Button>
+      </Form>
+    </List.Item>
   );
 }
 
