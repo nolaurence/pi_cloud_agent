@@ -1,0 +1,21 @@
+{
+  "name": "pi-cloud-agent",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @pi-cloud/shared && npm run build -w @pi-cloud/backend && npm run build -w @pi-cloud/sandbox && npm run build -w @pi-cloud/web",
+    "dev": "concurrently -n backend,sandbox,web -c blue,magenta,green \"npm run dev -w @pi-cloud/backend\" \"npm run dev -w @pi-cloud/sandbox\" \"npm run dev -w @pi-cloud/web\"",
+    "typecheck": "npm run build -w @pi-cloud/shared && npm run typecheck -w @pi-cloud/backend && npm run typecheck -w @pi-cloud/sandbox && npm run typecheck -w @pi-cloud/web",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  }
+}

@@ -1,0 +1,75 @@
+services:
+  db-init:
+    image: mysql:8.4
+    command: >
+      sh -c "mysql -h$$MYSQL_HOST -P$$MYSQL_PORT -u$$MYSQL_USER -p$$MYSQL_PASSWORD $$MYSQL_DATABASE < /tables.sql"
+    volumes:
+      - ./database/tables.sql:/tables.sql:ro
+    env_file:
+      - .env.production
+    networks:
+      - manus-network
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: pi-cloud-backend:latest
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      sandbox:
+        condition: service_started
+    env_file:
+      - .env.production
+    environment:
+      BACKEND_PORT: 3000
+      SANDBOX_URL: http://sandbox:3001
+      WEB_ORIGIN: http://192.168.49.235:18080
+    ports:
+      - "13000:3000"
+    networks:
+      - manus-network
+    restart: unless-stopped
+
+  sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    image: pi-cloud-sandbox:latest
+    env_file:
+      - .env.production
+    environment:
+      SANDBOX_PORT: 3001
+      SANDBOX_DATA_DIR: /data/sandbox
+    volumes:
+      - pi-sandbox-data:/data/sandbox
+      - /etc/timezone:/etc/timezone:ro
+    shm_size: "1gb"
+    networks:
+      - manus-network
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: pi-cloud-web:latest
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "18080:80"
+    networks:
+      - manus-network
+    restart: unless-stopped
+
+networks:
+  manus-network:
+    name: manus-network
+    external: true
+
+volumes:
+  pi-sandbox-data:
+    driver: local

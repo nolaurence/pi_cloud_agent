@@ -1,0 +1,32 @@
+{
+  "name": "@pi-cloud/sandbox",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@nestjs/common": "^11.1.9",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.9",
+    "@nestjs/platform-express": "^11.1.9",
+    "@pi-cloud/shared": "file:../shared",
+    "@playwright/cli": "^0.1.13",
+    "@playwright/mcp": "^0.0.75",
+    "class-validator": "^0.14.3",
+    "playwright": "^1.56.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.14",
+    "@types/node": "^24.10.1",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3"
+  }
+}
