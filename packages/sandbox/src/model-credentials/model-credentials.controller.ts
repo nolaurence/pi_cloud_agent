@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Put } from "@nestjs/common";
 import type { ModelCredentialProvider } from "@pi-cloud/shared";
-import { IsIn, IsString, MinLength } from "class-validator";
+import { IsIn, IsOptional, IsString, IsUrl, MinLength, ValidateIf } from "class-validator";
 import { ModelCredentialsService } from "./model-credentials.service";
 
-const PROVIDERS: ModelCredentialProvider[] = ["openai", "anthropic", "google", "deepseek", "openrouter", "xai", "groq", "mistral"];
+const PROVIDERS: ModelCredentialProvider[] = ["openai", "anthropic", "google", "deepseek", "openrouter", "xai", "groq", "mistral", "siliconflow"];
 
 class UserCredentialParams {
   @IsString()
@@ -19,6 +19,15 @@ class SetCredentialDto {
   @IsString()
   @MinLength(8)
   apiKey!: string;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsUrl({ require_tld: false, require_protocol: true })
+  baseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  model?: string;
 }
 
 @Controller("model-credentials")
@@ -32,7 +41,7 @@ export class ModelCredentialsController {
 
   @Put(":userId/:provider")
   set(@Param() params: CredentialParams, @Body() dto: SetCredentialDto) {
-    return this.credentials.set(params.userId, params.provider, dto.apiKey);
+    return this.credentials.set(params.userId, params.provider, dto);
   }
 
   @Delete(":userId/:provider")

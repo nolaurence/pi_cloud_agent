@@ -14,7 +14,7 @@
 }
 
 :root[data-theme="light"] {
-  --pi-bg: #fafafa;
+  --pi-bg: #ffffff;
   --pi-surface: #ffffff;
   --pi-surface-muted: #f4f4f5;
   --pi-border: #e4e4e7;
@@ -152,6 +152,7 @@ body {
   min-width: 180px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -205,6 +206,231 @@ body {
   flex-direction: column;
   gap: 12px;
   padding-right: 4px;
+}
+
+.message-row {
+  width: 100%;
+  display: flex;
+}
+
+.message-row.user {
+  justify-content: flex-end;
+}
+
+.message-row.assistant {
+  justify-content: flex-start;
+}
+
+.assistant-message {
+  width: min(920px, 100%);
+  color: var(--pi-text);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.assistant-message.loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pi-text-muted);
+}
+
+.assistant-content {
+  margin-bottom: 0 !important;
+  color: var(--pi-text);
+}
+
+.assistant-content :first-child {
+  margin-top: 0;
+}
+
+.assistant-content :last-child {
+  margin-bottom: 0;
+}
+
+.assistant-content p {
+  margin: 0 0 12px;
+}
+
+.assistant-content h1,
+.assistant-content h2,
+.assistant-content h3,
+.assistant-content h4,
+.assistant-content h5,
+.assistant-content h6 {
+  margin: 16px 0 8px;
+  color: var(--pi-text);
+  line-height: 1.3;
+}
+
+.assistant-content h1 {
+  font-size: 24px;
+}
+
+.assistant-content h2 {
+  font-size: 21px;
+}
+
+.assistant-content h3 {
+  font-size: 18px;
+}
+
+.assistant-content ul,
+.assistant-content ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.assistant-content li + li {
+  margin-top: 4px;
+}
+
+.assistant-content pre {
+  margin: 10px 0 14px;
+  padding: 12px;
+  border: 1px solid var(--pi-border);
+  border-radius: 8px;
+  background: var(--pi-surface);
+  overflow: auto;
+}
+
+.assistant-content code {
+  border-radius: 5px;
+  padding: 2px 5px;
+  background: var(--pi-surface-muted);
+  color: var(--pi-text);
+  font: 0.92em/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.assistant-content pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.assistant-content table {
+  width: 100%;
+  margin: 10px 0 14px;
+  border-collapse: collapse;
+  overflow: hidden;
+}
+
+.assistant-content th,
+.assistant-content td {
+  border: 1px solid var(--pi-border);
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.assistant-content th {
+  background: var(--pi-surface-muted);
+  color: var(--pi-text);
+  font-weight: 600;
+}
+
+.assistant-content blockquote {
+  margin: 10px 0 14px;
+  padding-left: 12px;
+  border-left: 3px solid var(--pi-border-strong);
+  color: var(--pi-text-muted);
+}
+
+.agent-trace {
+  margin-top: 14px;
+  border-top: 1px solid var(--pi-border);
+  color: var(--pi-text-muted);
+}
+
+.agent-trace > summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.agent-trace > summary::-webkit-details-marker,
+.trace-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.trace-summary-main,
+.trace-item > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trace-summary-meta {
+  font-size: 12px;
+  color: var(--pi-text-muted);
+}
+
+.trace-list {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 2px;
+}
+
+.trace-item {
+  border: 1px solid var(--pi-border);
+  border-radius: 8px;
+  background: var(--pi-surface);
+  overflow: hidden;
+}
+
+.trace-item > summary {
+  min-height: 34px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.trace-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--pi-text-muted);
+}
+
+.trace-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--pi-text);
+  font-size: 13px;
+}
+
+.trace-status {
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 12px;
+  color: var(--pi-text-muted);
+  background: var(--pi-surface-muted);
+}
+
+.trace-status.done {
+  color: #16a34a;
+}
+
+.trace-status.error {
+  color: #dc2626;
+}
+
+.trace-detail,
+.trace-raw {
+  margin: 0;
+  padding: 8px 10px 10px 34px;
+  border-top: 1px solid var(--pi-border);
+  color: var(--pi-text-muted);
+  white-space: pre-wrap;
+  overflow: auto;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.trace-raw {
+  max-height: 280px;
+  background: var(--pi-bg);
 }
 
 .browser-modal {

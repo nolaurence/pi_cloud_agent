@@ -22,6 +22,26 @@ export interface ChatMessage {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
   createdAt: string;
+  metadata?: ChatMessageMetadata;
+}
+
+export type AgentTraceItemType = "status" | "thinking" | "tool_call" | "tool_update" | "tool_result" | "message";
+export type AgentTraceItemStatus = "running" | "done" | "error";
+
+export interface AgentTraceItem {
+  id: string;
+  type: AgentTraceItemType;
+  title: string;
+  detail?: string;
+  raw?: unknown;
+  status?: AgentTraceItemStatus;
+  timestamp?: string;
+}
+
+export interface ChatMessageMetadata {
+  eventCount?: number;
+  trace?: AgentTraceItem[];
+  [key: string]: unknown;
 }
 
 export interface BrowserConnectionStatus {
@@ -32,13 +52,21 @@ export interface BrowserConnectionStatus {
   lastError?: string;
 }
 
-export type ModelCredentialProvider = "openai" | "anthropic" | "google" | "deepseek" | "openrouter" | "xai" | "groq" | "mistral";
+export type ModelCredentialProvider = "openai" | "anthropic" | "google" | "deepseek" | "openrouter" | "xai" | "groq" | "mistral" | "siliconflow";
 
 export interface ModelCredentialStatus {
   provider: ModelCredentialProvider;
   label: string;
   configured: boolean;
+  baseUrl?: string;
+  model?: string;
   updatedAt?: string;
+}
+
+export interface SetModelCredentialInput {
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
 }
 
 export interface PromptRequest {
@@ -51,4 +79,5 @@ export interface PromptResponse {
   sessionId: string;
   events: unknown[];
   assistantText: string;
+  assistantTrace?: AgentTraceItem[];
 }

@@ -12,12 +12,13 @@
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
     "@ant-design/x": "^2.7.0",
+    "@ant-design/x-markdown": "^2.7.0",
     "@pi-cloud/shared": "file:../shared",
     "@vitejs/plugin-react": "^5.1.1",
     "antd": "^6.4.2",
-    "vite": "^7.2.6",
     "react": "^19.2.1",
-    "react-dom": "^19.2.1"
+    "react-dom": "^19.2.1",
+    "vite": "^7.2.6"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",

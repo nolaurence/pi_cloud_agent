@@ -1,11 +1,13 @@
-import { CloudServerOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, SunOutlined, UserOutlined } from "@ant-design/icons";
+import { BulbOutlined, CheckCircleOutlined, CloudServerOutlined, CodeOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoadingOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, SunOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
 import { Bubble, Sender, XProvider } from "@ant-design/x";
-import type { AgentSessionSummary, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus } from "@pi-cloud/shared";
-import { App as AntApp, Button, ConfigProvider, Dropdown, Empty, Flex, Form, Input, Layout, List, Modal, Segmented, Space, Splitter, Tag, Typography, message, theme } from "antd";
+import { XMarkdown } from "@ant-design/x-markdown";
+import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, SetModelCredentialInput } from "@pi-cloud/shared";
+import { App as AntApp, Button, ConfigProvider, Dropdown, Empty, Flex, Form, Input, Layout, List, Modal, Segmented, Space, Splitter, Tag, Typography, message } from "antd";
 import type { MenuProps } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { ApiClient, type AuthResponse } from "../api/client";
 import { detectPlaywrightExtension } from "../components/ExtensionProbe";
+import { getShadcnThemeConfig } from "../styles/shadcnTheme";
 import { randomId } from "../utils/uuid";
 
 const TOKEN_KEY = "pi-cloud-token";
@@ -41,22 +43,7 @@ export function App() {
   }, [resolvedTheme]);
 
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
-        token: {
-          colorPrimary: isDark ? "#fafafa" : "#18181b",
-          colorBgBase: isDark ? "#09090b" : "#ffffff",
-          colorTextBase: isDark ? "#fafafa" : "#18181b",
-          borderRadius: 8,
-          colorBorder: isDark ? "#27272a" : "#e4e4e7"
-        },
-        components: {
-          Button: { defaultBg: isDark ? "#18181b" : "#ffffff", defaultBorderColor: isDark ? "#3f3f46" : "#d4d4d8", defaultColor: isDark ? "#fafafa" : "#18181b" },
-          Layout: { bodyBg: isDark ? "#09090b" : "#fafafa", headerBg: isDark ? "#09090b" : "#ffffff", siderBg: isDark ? "#09090b" : "#ffffff" }
-        }
-      }}
-    >
+    <ConfigProvider {...getShadcnThemeConfig(isDark)}>
       <XProvider>
         <AntApp>
           <Shell themeMode={themeMode} onThemeModeChange={setThemeMode} />
@@ -150,6 +137,7 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<WorkspaceView>("chat");
+  const [senderValue, setSenderValue] = useState("");
 
   const refresh = async () => {
     const next = await api.listSessions();
@@ -166,20 +154,38 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
   }, [active]);
 
   const createSession = async () => {
-    const session = await api.createSession({ title: `Session ${sessions.length + 1}` });
+    let modelConfig: { provider?: string; model?: string } = {};
+    try {
+      const siliconFlow = (await api.modelCredentials()).find((item) => item.provider === "siliconflow" && item.configured && item.model);
+      if (siliconFlow?.model) modelConfig = { provider: "siliconflow", model: siliconFlow.model };
+    } catch {
+      modelConfig = {};
+    }
+    const session = await api.createSession({ title: `Session ${sessions.length + 1}`, ...modelConfig });
     setSessions([session, ...sessions]);
     setActive(session);
     setMessages([]);
   };
 
   const send = async (content: string) => {
-    if (!active || !content.trim()) return;
-    const userMessage: ChatMessage = { id: randomId(), role: "user", content, createdAt: new Date().toISOString() };
+    const messageContent = content.trim();
+    if (!active || !messageContent) return;
+    setSenderValue("");
+    const userMessage: ChatMessage = { id: randomId(), role: "user", content: messageContent, createdAt: new Date().toISOString() };
     setMessages((items) => [...items, userMessage]);
     setLoading(true);
     try {
-      const response = await api.prompt(active.id, content);
-      setMessages((items) => [...items, { id: randomId(), role: "assistant", content: response.assistantText, createdAt: new Date().toISOString() }]);
+      const response = await api.prompt(active.id, messageContent);
+      setMessages((items) => [
+        ...items,
+        {
+          id: randomId(),
+          role: "assistant",
+          content: response.assistantText,
+          createdAt: new Date().toISOString(),
+          metadata: { eventCount: response.events.length, trace: response.assistantTrace }
+        }
+      ]);
       await refresh();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "Agent request failed");
@@ -247,11 +253,18 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                   <>
                     <div className="messages">
                       {messages.map((item) => (
-                        <Bubble key={item.id} placement={item.role === "user" ? "end" : "start"} content={item.content} />
+                        <ChatMessageView key={item.id} message={item} />
                       ))}
-                      {loading ? <Bubble placement="start" loading content="Pi is working..." /> : null}
+                      {loading ? (
+                        <div className="message-row assistant">
+                          <div className="assistant-message loading">
+                            <LoadingOutlined />
+                            <Typography.Text type="secondary">Pi is working...</Typography.Text>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                    <Sender placeholder="向云端 agent 发送任务" loading={loading} onSubmit={send} />
+                    <Sender placeholder="向云端 agent 发送任务" value={senderValue} loading={loading} onChange={setSenderValue} onSubmit={send} />
                   </>
                 ) : (
                   <Empty description="创建一个会话开始" />
@@ -263,6 +276,98 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
       </Layout.Content>
     </Layout>
   );
+}
+
+function ChatMessageView({ message: item }: { message: ChatMessage }) {
+  if (item.role === "user") {
+    return (
+      <div className="message-row user">
+        <Bubble placement="end" content={item.content} />
+      </div>
+    );
+  }
+
+  if (item.role === "assistant") {
+    return (
+      <div className="message-row assistant">
+        <article className="assistant-message">
+          <XMarkdown className="assistant-content" content={item.content} />
+          <AgentTracePanel trace={item.metadata?.trace as AgentTraceItem[] | undefined} eventCount={typeof item.metadata?.eventCount === "number" ? item.metadata.eventCount : undefined} />
+        </article>
+      </div>
+    );
+  }
+
+  return (
+    <div className="message-row assistant">
+      <article className="assistant-message system">
+        <Typography.Text type="secondary">{item.content}</Typography.Text>
+      </article>
+    </div>
+  );
+}
+
+function AgentTracePanel({ trace, eventCount }: { trace?: AgentTraceItem[]; eventCount?: number }) {
+  if (!trace?.length && !eventCount) return null;
+
+  return (
+    <details className="agent-trace">
+      <summary>
+        <span className="trace-summary-main">
+          <ToolOutlined />
+          Pi agent 过程和工具调用
+        </span>
+        <span className="trace-summary-meta">
+          {trace?.length ?? 0} 条记录{eventCount ? ` · ${eventCount} 个事件` : ""}
+        </span>
+      </summary>
+      {trace?.length ? (
+        <div className="trace-list">
+          {trace.map((item) => (
+            <TraceItem key={`${item.type}-${item.id}`} item={item} />
+          ))}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
+function TraceItem({ item }: { item: AgentTraceItem }) {
+  return (
+    <details className={`trace-item ${item.type}`} open={item.type !== "tool_update"}>
+      <summary>
+        <span className="trace-icon">{traceIcon(item)}</span>
+        <span className="trace-title">{item.title}</span>
+        {item.status ? <span className={`trace-status ${item.status}`}>{traceStatusText(item.status)}</span> : null}
+      </summary>
+      {item.detail ? <pre className="trace-detail">{item.detail}</pre> : null}
+      {item.raw !== undefined ? <pre className="trace-raw">{formatTraceRaw(item.raw)}</pre> : null}
+    </details>
+  );
+}
+
+function traceIcon(item: AgentTraceItem) {
+  if (item.type === "thinking") return <BulbOutlined />;
+  if (item.type === "tool_call" || item.type === "tool_update" || item.type === "tool_result") return <ToolOutlined />;
+  if (item.type === "message") return <MessageOutlined />;
+  if (item.status === "running") return <LoadingOutlined />;
+  if (item.status === "done") return <CheckCircleOutlined />;
+  return <CodeOutlined />;
+}
+
+function traceStatusText(status: AgentTraceItem["status"]) {
+  if (status === "running") return "进行中";
+  if (status === "error") return "失败";
+  return "完成";
+}
+
+function formatTraceRaw(value: unknown) {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function UserMenu({ user, onOpenSettings, onLogout }: { user: AuthResponse["user"]; onOpenSettings: () => void; onLogout: () => void }) {
@@ -312,10 +417,14 @@ function SettingsView({ api, user }: { api: ApiClient; user: AuthResponse["user"
     void reload();
   }, []);
 
-  const save = async (provider: ModelCredentialProvider, values: { apiKey: string }) => {
+  const save = async (provider: ModelCredentialProvider, values: SetModelCredentialInput) => {
     setSavingProvider(provider);
     try {
-      const next = await api.setModelCredential(provider, values.apiKey.trim());
+      const next = await api.setModelCredential(provider, {
+        apiKey: values.apiKey.trim(),
+        baseUrl: values.baseUrl?.trim(),
+        model: values.model?.trim()
+      });
       setCredentials(next);
       message.success("API key 已保存");
       return true;
@@ -371,10 +480,11 @@ function SettingsView({ api, user }: { api: ApiClient; user: AuthResponse["user"
   );
 }
 
-function CredentialRow({ item, saving, onSave, onRemove }: { item: ModelCredentialStatus; saving: boolean; onSave: (values: { apiKey: string }) => Promise<boolean>; onRemove: () => Promise<void> }) {
+function CredentialRow({ item, saving, onSave, onRemove }: { item: ModelCredentialStatus; saving: boolean; onSave: (values: SetModelCredentialInput) => Promise<boolean>; onRemove: () => Promise<void> }) {
   const [form] = Form.useForm();
+  const isSiliconFlow = item.provider === "siliconflow";
 
-  const submit = async (values: { apiKey: string }) => {
+  const submit = async (values: SetModelCredentialInput) => {
     if (await onSave(values)) form.resetFields();
   };
 
@@ -383,8 +493,19 @@ function CredentialRow({ item, saving, onSave, onRemove }: { item: ModelCredenti
       <div className="credential-copy">
         <Typography.Text strong>{item.label}</Typography.Text>
         <Tag color={item.configured ? "success" : "default"}>{item.configured ? "已保存" : "未设置"}</Tag>
+        {item.model ? <Typography.Text type="secondary">{item.model}</Typography.Text> : null}
       </div>
       <Form form={form} className="credential-form" layout="inline" onFinish={submit}>
+        {isSiliconFlow ? (
+          <>
+            <Form.Item name="baseUrl" initialValue={item.baseUrl ?? "https://api.siliconflow.cn/v1"} rules={[{ required: true, type: "url", message: "请输入 OpenAI 协议 Base URL" }]}>
+              <Input placeholder="Base URL" autoComplete="off" />
+            </Form.Item>
+            <Form.Item name="model" initialValue={item.model} rules={[{ required: true, min: 1, message: "请输入模型名称" }]}>
+              <Input placeholder="模型名称，例如 deepseek-ai/DeepSeek-V3" autoComplete="off" />
+            </Form.Item>
+          </>
+        ) : null}
         <Form.Item name="apiKey" rules={[{ required: true, min: 8, message: "请输入 API key" }]}>
           <Input.Password placeholder={item.configured ? "输入新 key 以覆盖" : "粘贴 API key"} autoComplete="off" />
         </Form.Item>

@@ -1,4 +1,4 @@
-import type { AgentSessionSummary, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, PromptResponse } from "@pi-cloud/shared";
+import type { AgentSessionSummary, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, PromptResponse, SetModelCredentialInput } from "@pi-cloud/shared";
 
 const API_BASE = "/api";
 
@@ -58,8 +58,8 @@ export class ApiClient {
     return this.request<ModelCredentialStatus[]>("/model-credentials");
   }
 
-  setModelCredential(provider: ModelCredentialProvider, apiKey: string) {
-    return this.request<ModelCredentialStatus[]>(`/model-credentials/${provider}`, { method: "PUT", body: { apiKey } });
+  setModelCredential(provider: ModelCredentialProvider, input: SetModelCredentialInput) {
+    return this.request<ModelCredentialStatus[]>(`/model-credentials/${provider}`, { method: "PUT", body: input });
   }
 
   removeModelCredential(provider: ModelCredentialProvider) {
