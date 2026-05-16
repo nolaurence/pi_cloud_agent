@@ -320,11 +320,22 @@ function ChatMessageView({ message: item }: { message: ChatMessage }) {
   }
 
   if (item.role === "assistant") {
+    const trace = item.metadata?.trace as AgentTraceItem[] | undefined;
+    const eventCount = typeof item.metadata?.eventCount === "number" ? item.metadata.eventCount : undefined;
+
+    // Combine trace items chronologically: thinking → tools → final answer
+    // If there's a trace, show it inline; otherwise just show markdown
     return (
       <div className="message-row assistant">
         <article className="assistant-message">
-          <XMarkdown className="assistant-content" content={item.content} />
-          <AgentTracePanel trace={item.metadata?.trace as AgentTraceItem[] | undefined} eventCount={typeof item.metadata?.eventCount === "number" ? item.metadata.eventCount : undefined} />
+          {trace?.length ? (
+            <InlineTrace trace={trace} finalAnswer={item.content} />
+          ) : (
+            <XMarkdown className="assistant-content" content={item.content} />
+          )}
+          {!trace?.length && eventCount ? (
+            <AgentTracePanel trace={undefined} eventCount={eventCount} />
+          ) : null}
         </article>
       </div>
     );
@@ -335,6 +346,51 @@ function ChatMessageView({ message: item }: { message: ChatMessage }) {
       <article className="assistant-message system">
         <Typography.Text type="secondary">{item.content}</Typography.Text>
       </article>
+    </div>
+  );
+}
+
+/** Render trace items chronologically followed by the final answer. */
+function InlineTrace({ trace, finalAnswer }: { trace: AgentTraceItem[]; finalAnswer: string }) {
+  // Separate thinking items from non-thinking
+  const thinkingItems = trace.filter((t) => t.type === "thinking");
+  const thinkingContent = thinkingItems
+    .filter((t) => t.status === "done" && t.detail)
+    .map((t) => t.detail)
+    .join("");
+  const thinkingStream = thinkingItems
+    .filter((t) => t.status === "running")
+    .map((t) => t.title)
+    .join("");
+
+  const toolItems = trace.filter((t) => t.type === "tool_call" || t.type === "tool_update" || t.type === "tool_result");
+
+  return (
+    <div className="inline-trace">
+      {/* Thinking section */}
+      {(thinkingContent || thinkingStream) ? (
+        <details className="trace-item thinking" open>
+          <summary>
+            <span className="trace-icon"><BulbOutlined /></span>
+            <span className="trace-title">🧠 推理过程</span>
+          </summary>
+          <pre className="trace-detail thinking-content">{thinkingContent || thinkingStream || "推理中…"}</pre>
+        </details>
+      ) : null}
+
+      {/* Tool calls section */}
+      {toolItems.length > 0 ? (
+        <div className="trace-section tools">
+          {toolItems.map((item) => (
+            <TraceItem key={`${item.type}-${item.id}`} item={item} />
+          ))}
+        </div>
+      ) : null}
+
+      {/* Final answer */}
+      {finalAnswer ? (
+        <XMarkdown className="assistant-content" content={finalAnswer} />
+      ) : null}
     </div>
   );
 }

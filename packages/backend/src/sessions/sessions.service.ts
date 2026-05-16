@@ -183,7 +183,7 @@ export class SessionsService {
   }
 }
 
-const SENSITIVE_KEY_PATTERN = /(api[-_ ]?key|token|authorization|password|secret|credential|cookie|thinking|thought|signature)/i;
+const SENSITIVE_KEY_PATTERN = /(api[-_ ]?key|token|authorization|password|secret|credential|cookie|thought|signature)/i;
 
 /** Build a single trace item from a streaming event for real-time display. */
 function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | null {
@@ -192,57 +192,39 @@ function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | n
   const eventType = readString(event.type) ?? "event";
   const timestamp = readTimestamp(event);
 
-  if (eventType === "agent_start") {
-    return { id: `${index}-agent-start`, type: "status", title: "Pi agent 开始处理", status: "running", timestamp, raw: sanitizeForClient(event) };
-  }
-
-  if (eventType === "agent_end") {
-    return { id: `${index}-agent-end`, type: "status", title: "Pi agent 处理完成", status: "done", timestamp, raw: sanitizeForClient(event) };
-  }
-
-  if (eventType === "turn_start") {
-    return {
-      id: `${index}-turn-start`,
-      type: "status",
-      title: `第 ${readNumber(event.turnIndex) ?? "?"} 轮开始`,
-      status: "running",
-      timestamp,
-      raw: sanitizeForClient(event)
-    };
-  }
-
-  if (eventType === "turn_end") {
-    return {
-      id: `${index}-turn-end`,
-      type: "status",
-      title: `第 ${readNumber(event.turnIndex) ?? "?"} 轮完成`,
-      detail: summarizeToolResults(event.toolResults),
-      status: "done",
-      timestamp,
-      raw: sanitizeForClient(event)
-    };
+  // Skip lifecycle events — only show thinking, tool calls, and tool results
+  if (eventType === "agent_start" || eventType === "agent_end" || eventType === "turn_start" || eventType === "turn_end") {
+    return null;
   }
 
   if (eventType === "message_update") {
     const assistantEvent = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
     const assistantEventType = readString(assistantEvent?.type);
+
     if (assistantEventType === "thinking_start") {
-      return { id: `${index}-thinking-start`, type: "thinking", title: "Pi agent 正在内部推理", status: "running", timestamp, raw: sanitizeForClient(event) };
+      return { id: `${index}-thinking-start`, type: "thinking", title: "🧠 推理中…", status: "running", timestamp, raw: sanitizeForClient(event) };
+    }
+    if (assistantEventType === "thinking_delta" && typeof assistantEvent?.delta === "string") {
+      return { id: `${index}-thinking-delta`, type: "thinking", title: assistantEvent.delta, status: "running", timestamp, raw: sanitizeForClient(event) };
     }
     if (assistantEventType === "thinking_end") {
-      return { id: `${index}-thinking-end`, type: "thinking", title: "Pi agent 完成内部推理", detail: "内部推理原文已隐藏", status: "done", timestamp, raw: sanitizeForClient(event) };
+      const thinkingContent = typeof assistantEvent?.content === "string" ? assistantEvent.content : undefined;
+      return { id: `${index}-thinking-end`, type: "thinking", title: "推理完成", detail: thinkingContent, status: "done", timestamp, raw: sanitizeForClient(event) };
     }
     if (assistantEventType === "toolcall_end" && isRecord(assistantEvent?.toolCall)) {
       const toolName = readString(assistantEvent.toolCall.name) ?? "tool";
       return {
         id: readString(assistantEvent.toolCall.id) ?? `${index}-toolcall-end`,
         type: "tool_call",
-        title: `工具调用：${toolName}`,
+        title: `🔧 ${toolName}`,
         detail: stringifyDetail(assistantEvent.toolCall.arguments),
         status: "running",
         timestamp,
         raw: sanitizeForClient(event)
       };
+    }
+    if (assistantEventType === "text_end" && typeof assistantEvent?.content === "string") {
+      return { id: `${index}-text`, type: "message", title: assistantEvent.content, status: "done", timestamp, raw: sanitizeForClient(event) };
     }
     return null;
   }
@@ -252,7 +234,7 @@ function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | n
     return {
       id: readString(event.toolCallId) ?? `${index}-tool-start`,
       type: "tool_call",
-      title: `调用工具：${toolName}`,
+      title: `🔧 ${toolName}`,
       detail: stringifyDetail(event.args),
       status: "running",
       timestamp,
@@ -265,7 +247,7 @@ function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | n
     return {
       id: `${readString(event.toolCallId) ?? index}-end`,
       type: "tool_result",
-      title: `工具结果：${toolName}`,
+      title: `📋 ${toolName} 结果`,
       detail: summarizeToolResult(event.result),
       status: event.isError === true ? "error" : "done",
       timestamp,
@@ -292,38 +274,12 @@ function buildAgentTrace(events: unknown[] = []): AgentTraceItem[] {
     const eventType = readString(event.type) ?? "event";
     const timestamp = readTimestamp(event);
 
-    if (eventType === "agent_start") {
-      add({ id: `${index}-agent-start`, type: "status", title: "Pi agent 开始处理", status: "running", timestamp, raw: sanitizeForClient(event) });
-      return;
-    }
-
-    if (eventType === "agent_end") {
-      add({ id: `${index}-agent-end`, type: "status", title: "Pi agent 处理完成", status: "done", timestamp, raw: sanitizeForClient(event) });
-      return;
-    }
-
-    if (eventType === "turn_start") {
-      add({
-        id: `${index}-turn-start`,
-        type: "status",
-        title: `第 ${readNumber(event.turnIndex) ?? "?"} 轮开始`,
-        status: "running",
-        timestamp,
-        raw: sanitizeForClient(event)
-      });
+    // Skip lifecycle events
+    if (eventType === "agent_start" || eventType === "agent_end" || eventType === "turn_start") {
       return;
     }
 
     if (eventType === "turn_end") {
-      add({
-        id: `${index}-turn-end`,
-        type: "status",
-        title: `第 ${readNumber(event.turnIndex) ?? "?"} 轮完成`,
-        detail: summarizeToolResults(event.toolResults),
-        status: "done",
-        timestamp,
-        raw: sanitizeForClient(event)
-      });
       extractMessageTrace(event.message, `${index}-turn-message`, timestamp, add);
       return;
     }
@@ -332,11 +288,14 @@ function buildAgentTrace(events: unknown[] = []): AgentTraceItem[] {
       const assistantEvent = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
       const assistantEventType = readString(assistantEvent?.type);
       if (assistantEventType?.startsWith("thinking_")) {
+        const thinkingContent = assistantEventType === "thinking_end" && typeof assistantEvent?.content === "string"
+          ? assistantEvent.content
+          : undefined;
         add({
           id: `${index}-thinking-${readNumber(assistantEvent?.contentIndex) ?? 0}`,
           type: "thinking",
-          title: assistantEventType === "thinking_end" ? "Pi agent 完成内部推理" : "Pi agent 正在内部推理",
-          detail: "内部推理原文已隐藏；工具调用、参数和结果会在下方完整展示。",
+          title: assistantEventType === "thinking_end" ? "推理完成" : "推理中…",
+          detail: thinkingContent,
           status: assistantEventType === "thinking_end" ? "done" : "running",
           timestamp,
           raw: sanitizeForClient(event)
@@ -442,8 +401,18 @@ function extractMessageTrace(message: unknown, idPrefix: string, timestamp: stri
         add({
           id: `${idPrefix}-thinking-${index}`,
           type: "thinking",
-          title: "Pi agent 进行了内部推理",
-          detail: "内部推理原文已隐藏；这里保留推理发生状态。",
+          title: typeof block.thinking === "string" ? block.thinking : "推理内容",
+          detail: undefined,
+          status: "done",
+          timestamp,
+          raw: sanitizeForClient(block)
+        });
+      }
+      if (block.type === "text" && typeof block.text === "string") {
+        add({
+          id: `${idPrefix}-text-${index}`,
+          type: "message",
+          title: block.text,
           status: "done",
           timestamp,
           raw: sanitizeForClient(block)
@@ -487,10 +456,9 @@ function sanitizeEventsForClient(events: unknown[] = []) {
 function sanitizeForClient(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => sanitizeForClient(item));
   if (!isRecord(value)) return value;
-  const isThinkingPayload = readString(value.type)?.includes("thinking") === true;
   const output: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value)) {
-    output[key] = SENSITIVE_KEY_PATTERN.test(key) || (isThinkingPayload && (key === "content" || key === "delta" || key === "partial")) ? "[redacted]" : sanitizeForClient(nested);
+    output[key] = SENSITIVE_KEY_PATTERN.test(key) ? "[redacted]" : sanitizeForClient(nested);
   }
   return output;
 }
