@@ -167,6 +167,8 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
     setMessages([]);
   };
 
+  const [streamingTrace, setStreamingTrace] = useState<AgentTraceItem[]>([]);
+
   const send = async (content: string) => {
     const messageContent = content.trim();
     if (!active || !messageContent) return;
@@ -174,23 +176,38 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
     const userMessage: ChatMessage = { id: randomId(), role: "user", content: messageContent, createdAt: new Date().toISOString() };
     setMessages((items) => [...items, userMessage]);
     setLoading(true);
+    setStreamingTrace([]);
+
     try {
-      const response = await api.prompt(active.id, messageContent);
-      setMessages((items) => [
-        ...items,
-        {
-          id: randomId(),
-          role: "assistant",
-          content: response.assistantText,
-          createdAt: new Date().toISOString(),
-          metadata: { eventCount: response.events.length, trace: response.assistantTrace }
+      await api.promptStream(active.id, messageContent, {
+        onTrace: (item) => {
+          setStreamingTrace((prev) => [...prev, item]);
+        },
+        onComplete: (result) => {
+          setMessages((items) => [
+            ...items,
+            {
+              id: randomId(),
+              role: "assistant",
+              content: result.assistantText,
+              createdAt: new Date().toISOString(),
+              metadata: { eventCount: result.eventCount, trace: result.assistantTrace }
+            }
+          ]);
+          setLoading(false);
+          setStreamingTrace([]);
+          refresh();
+        },
+        onError: (error) => {
+          message.error(error.message || "Agent request failed");
+          setLoading(false);
+          setStreamingTrace([]);
         }
-      ]);
-      await refresh();
+      });
     } catch (error) {
       message.error(error instanceof Error ? error.message : "Agent request failed");
-    } finally {
       setLoading(false);
+      setStreamingTrace([]);
     }
   };
 
@@ -258,8 +275,23 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                       {loading ? (
                         <div className="message-row assistant">
                           <div className="assistant-message loading">
-                            <LoadingOutlined />
+                            <LoadingOutlined spin />
                             <Typography.Text type="secondary">Pi is working...</Typography.Text>
+                            {streamingTrace.length > 0 ? (
+                              <details className="agent-trace streaming" open>
+                                <summary>
+                                  <span className="trace-summary-main">
+                                    <ToolOutlined />
+                                    Pi agent 处理中（{streamingTrace.length} 步）
+                                  </span>
+                                </summary>
+                                <div className="trace-list">
+                                  {streamingTrace.map((item) => (
+                                    <TraceItem key={`${item.type}-${item.id}`} item={item} />
+                                  ))}
+                                </div>
+                              </details>
+                            ) : null}
                           </div>
                         </div>
                       ) : null}
@@ -311,7 +343,7 @@ function AgentTracePanel({ trace, eventCount }: { trace?: AgentTraceItem[]; even
   if (!trace?.length && !eventCount) return null;
 
   return (
-    <details className="agent-trace">
+    <details className="agent-trace" open>
       <summary>
         <span className="trace-summary-main">
           <ToolOutlined />

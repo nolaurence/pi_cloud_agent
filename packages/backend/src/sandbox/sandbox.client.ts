@@ -61,6 +61,69 @@ export class SandboxClient {
     return new InternalServerErrorException(error instanceof Error ? error.message : "Sandbox request failed");
   }
 
+  /** Stream SSE events from the sandbox. Resolves when the stream ends. */
+  async postStream<T>(
+    path: string,
+    body: unknown,
+    callbacks: {
+      onData: (data: T) => void;
+      onComplete: () => void;
+      onError: (error: Error) => void;
+    }
+  ): Promise<void> {
+    const url = `${this.baseUrl}${path}`;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        callbacks.onError(new Error(text || `Sandbox returned ${response.status}`));
+        return;
+      }
+
+      const reader = (response.body as unknown as ReadableStream<Uint8Array> | null)?.getReader();
+      if (!reader) {
+        callbacks.onError(new Error("No response body from sandbox"));
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data: ")) {
+              try {
+                const parsed = JSON.parse(trimmed.slice(6)) as T;
+                callbacks.onData(parsed);
+              } catch {
+                // Skip malformed JSON
+              }
+            }
+          }
+        }
+        callbacks.onComplete();
+      } catch (error) {
+        callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+      }
+    } catch (error) {
+      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
   private extractMessage(data: unknown) {
     if (typeof data === "string") return data;
     if (!data || typeof data !== "object" || !("message" in data)) return undefined;

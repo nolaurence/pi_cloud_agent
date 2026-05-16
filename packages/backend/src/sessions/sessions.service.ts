@@ -6,6 +6,14 @@ import { SandboxClient } from "../sandbox/sandbox.client";
 import { AgentMessageEntity } from "./agent-message.entity";
 import { AgentSessionEntity } from "./agent-session.entity";
 
+interface SandboxStreamEvent {
+  type: "event" | "done" | "error";
+  event?: unknown;
+  assistantText?: string;
+  eventCount?: number;
+  message?: string;
+}
+
 @Injectable()
 export class SessionsService {
   constructor(
@@ -96,6 +104,77 @@ export class SessionsService {
     }
   }
 
+  /** Stream agent events in real-time from the sandbox to the frontend. */
+  async promptStreaming(
+    userId: string,
+    sessionId: string,
+    message: string,
+    callbacks: {
+      onTraceItem: (item: AgentTraceItem) => void;
+      onComplete: (result: { assistantText: string; assistantTrace: AgentTraceItem[]; eventCount: number }) => void;
+      onError: (error: Error) => void;
+    }
+  ): Promise<void> {
+    const session = await this.requireOwnedSession(userId, sessionId);
+    await this.messagesRepo.save(this.messagesRepo.create({ sessionId, role: "user", content: message }));
+
+    session.status = "running";
+    await this.sessions.save(session);
+
+    const rawEvents: unknown[] = [];
+    let eventIndex = 0;
+    let doneText = "";
+    let doneEventCount = 0;
+
+    await this.sandbox.postStream<SandboxStreamEvent>(
+      `/agent/sessions/${sessionId}/prompt/stream`,
+      { userId, message, provider: session.provider, model: session.model },
+      {
+        onData: (data) => {
+          if (data.type === "event" && data.event) {
+            rawEvents.push(data.event);
+            const traceItem = buildSingleTraceItem(data.event, eventIndex++);
+            if (traceItem) {
+              try { callbacks.onTraceItem(traceItem); } catch { /* ignore */ }
+            }
+          } else if (data.type === "done") {
+            doneText = data.assistantText ?? "";
+            doneEventCount = data.eventCount ?? rawEvents.length;
+          }
+        },
+        onComplete: async () => {
+          const assistantTrace = buildAgentTrace(rawEvents);
+          const assistantText = doneText;
+
+          if (assistantText) {
+            await this.messagesRepo.save(
+              this.messagesRepo.create({
+                sessionId,
+                role: "assistant",
+                content: assistantText,
+                metadata: { eventCount: doneEventCount, trace: assistantTrace }
+              })
+            );
+          }
+
+          session.status = "idle";
+          await this.sessions.save(session);
+
+          callbacks.onComplete({
+            assistantText,
+            assistantTrace,
+            eventCount: doneEventCount
+          });
+        },
+        onError: async (error) => {
+          session.status = "failed";
+          await this.sessions.save(session);
+          callbacks.onError(error);
+        }
+      }
+    );
+  }
+
   private async requireOwnedSession(userId: string, sessionId: string) {
     const session = await this.sessions.findOne({ where: { id: sessionId } });
     if (!session) throw new NotFoundException("Session not found");
@@ -105,6 +184,97 @@ export class SessionsService {
 }
 
 const SENSITIVE_KEY_PATTERN = /(api[-_ ]?key|token|authorization|password|secret|credential|cookie|thinking|thought|signature)/i;
+
+/** Build a single trace item from a streaming event for real-time display. */
+function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | null {
+  if (!isRecord(event)) return null;
+
+  const eventType = readString(event.type) ?? "event";
+  const timestamp = readTimestamp(event);
+
+  if (eventType === "agent_start") {
+    return { id: `${index}-agent-start`, type: "status", title: "Pi agent 开始处理", status: "running", timestamp, raw: sanitizeForClient(event) };
+  }
+
+  if (eventType === "agent_end") {
+    return { id: `${index}-agent-end`, type: "status", title: "Pi agent 处理完成", status: "done", timestamp, raw: sanitizeForClient(event) };
+  }
+
+  if (eventType === "turn_start") {
+    return {
+      id: `${index}-turn-start`,
+      type: "status",
+      title: `第 ${readNumber(event.turnIndex) ?? "?"} 轮开始`,
+      status: "running",
+      timestamp,
+      raw: sanitizeForClient(event)
+    };
+  }
+
+  if (eventType === "turn_end") {
+    return {
+      id: `${index}-turn-end`,
+      type: "status",
+      title: `第 ${readNumber(event.turnIndex) ?? "?"} 轮完成`,
+      detail: summarizeToolResults(event.toolResults),
+      status: "done",
+      timestamp,
+      raw: sanitizeForClient(event)
+    };
+  }
+
+  if (eventType === "message_update") {
+    const assistantEvent = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
+    const assistantEventType = readString(assistantEvent?.type);
+    if (assistantEventType === "thinking_start") {
+      return { id: `${index}-thinking-start`, type: "thinking", title: "Pi agent 正在内部推理", status: "running", timestamp, raw: sanitizeForClient(event) };
+    }
+    if (assistantEventType === "thinking_end") {
+      return { id: `${index}-thinking-end`, type: "thinking", title: "Pi agent 完成内部推理", detail: "内部推理原文已隐藏", status: "done", timestamp, raw: sanitizeForClient(event) };
+    }
+    if (assistantEventType === "toolcall_end" && isRecord(assistantEvent?.toolCall)) {
+      const toolName = readString(assistantEvent.toolCall.name) ?? "tool";
+      return {
+        id: readString(assistantEvent.toolCall.id) ?? `${index}-toolcall-end`,
+        type: "tool_call",
+        title: `工具调用：${toolName}`,
+        detail: stringifyDetail(assistantEvent.toolCall.arguments),
+        status: "running",
+        timestamp,
+        raw: sanitizeForClient(event)
+      };
+    }
+    return null;
+  }
+
+  if (eventType === "tool_execution_start") {
+    const toolName = readString(event.toolName) ?? "tool";
+    return {
+      id: readString(event.toolCallId) ?? `${index}-tool-start`,
+      type: "tool_call",
+      title: `调用工具：${toolName}`,
+      detail: stringifyDetail(event.args),
+      status: "running",
+      timestamp,
+      raw: sanitizeForClient(event)
+    };
+  }
+
+  if (eventType === "tool_execution_end") {
+    const toolName = readString(event.toolName) ?? "tool";
+    return {
+      id: `${readString(event.toolCallId) ?? index}-end`,
+      type: "tool_result",
+      title: `工具结果：${toolName}`,
+      detail: summarizeToolResult(event.result),
+      status: event.isError === true ? "error" : "done",
+      timestamp,
+      raw: sanitizeForClient(event)
+    };
+  }
+
+  return null;
+}
 
 function buildAgentTrace(events: unknown[] = []): AgentTraceItem[] {
   const trace: AgentTraceItem[] = [];

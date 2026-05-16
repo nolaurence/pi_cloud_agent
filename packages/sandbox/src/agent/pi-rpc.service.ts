@@ -6,12 +6,18 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { WorkspaceService } from "../workspace/workspace.service";
 
+type RpcEventListener = (event: unknown) => void;
+
 interface RpcClientLike {
   start(): Promise<void>;
   stop(): Promise<void>;
   getState(): Promise<{ model?: { provider?: string; id?: string } }>;
   promptAndWait(message: string, images?: unknown[], timeout?: number): Promise<unknown[]>;
+  prompt(message: string, images?: unknown[]): Promise<void>;
+  waitForIdle(timeout?: number): Promise<void>;
+  onEvent(listener: RpcEventListener): () => void;
   getLastAssistantText(): Promise<string | null>;
+  setThinkingLevel(level: string): Promise<void>;
 }
 
 interface SessionRuntime {
@@ -37,6 +43,49 @@ export class PiRpcService implements OnModuleDestroy {
   }
 
   async prompt(input: { userId: string; sessionId: string; message: string; provider?: string; model?: string }): Promise<PromptResponse> {
+    const runtime = await this.ensureRuntime(input);
+    await this.assertUsableModel(runtime.client);
+
+    const events = await runtime.client.promptAndWait(input.message, undefined, 180000);
+    const assistantText = (await runtime.client.getLastAssistantText()) ?? "";
+    return { sessionId: input.sessionId, events, assistantText };
+  }
+
+  /** Stream events in real-time via callbacks. Returns the final assistant text and all events. */
+  async promptStreaming(
+    input: { userId: string; sessionId: string; message: string; provider?: string; model?: string },
+    callbacks: {
+      onEvent: (event: unknown) => void;
+      onComplete: (result: { assistantText: string; events: unknown[] }) => void;
+      onError: (error: Error) => void;
+    }
+  ): Promise<void> {
+    const runtime = await this.ensureRuntime(input);
+    await this.assertUsableModel(runtime.client);
+
+    const events: unknown[] = [];
+    const unsubscribe = runtime.client.onEvent((event) => {
+      events.push(event);
+      try {
+        callbacks.onEvent(event);
+      } catch {
+        // Don't let callback errors break the stream
+      }
+    });
+
+    try {
+      await runtime.client.prompt(input.message);
+      await runtime.client.waitForIdle(180000);
+      const assistantText = (await runtime.client.getLastAssistantText()) ?? "";
+      unsubscribe();
+      callbacks.onComplete({ assistantText, events });
+    } catch (error) {
+      unsubscribe();
+      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private async ensureRuntime(input: { userId: string; sessionId: string; provider?: string; model?: string }): Promise<SessionRuntime> {
     let runtime = this.sessions.get(input.sessionId);
     if (!runtime) {
       runtime = await this.startRuntime(input);
@@ -45,12 +94,13 @@ export class PiRpcService implements OnModuleDestroy {
     if (runtime.userId !== input.userId) {
       throw new Error("Cross-user sandbox session access denied");
     }
-
-    await this.assertUsableModel(runtime.client);
-
-    const events = await runtime.client.promptAndWait(input.message, undefined, 180000);
-    const assistantText = (await runtime.client.getLastAssistantText()) ?? "";
-    return { sessionId: input.sessionId, events, assistantText };
+    // Ensure thinking is enabled on every prompt (in case runtime was cached before the fix)
+    try {
+      await runtime.client.setThinkingLevel("medium");
+    } catch {
+      // setThinkingLevel may not be supported by all pi versions or models
+    }
+    return runtime;
   }
 
   async onModuleDestroy() {
@@ -80,6 +130,13 @@ export class PiRpcService implements OnModuleDestroy {
     }) as RpcClientLike;
 
     await client.start();
+    // Enable thinking by default (medium level for good balance of quality vs speed)
+    try {
+      await client.setThinkingLevel("medium");
+    } catch (error) {
+      // setThinkingLevel may not be supported by all pi versions or models
+      console.warn("Failed to set thinking level:", error instanceof Error ? error.message : String(error));
+    }
     return { id: randomUUID(), userId: input.userId, sessionId: input.sessionId, client };
   }
 

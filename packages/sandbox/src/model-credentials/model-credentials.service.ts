@@ -113,7 +113,8 @@ export class ModelCredentialsService {
         authHeader: true,
         compat: {
           supportsDeveloperRole: false,
-          supportsReasoningEffort: false
+          supportsReasoningEffort: true,
+          thinkingFormat: "deepseek"
         },
         models: [
           {
@@ -121,7 +122,8 @@ export class ModelCredentialsService {
             name: model,
             input: ["text"],
             contextWindow: 128000,
-            maxTokens: 16384
+            maxTokens: 16384,
+            reasoning: true
           }
         ]
       }

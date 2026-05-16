@@ -1,4 +1,4 @@
-import type { AgentSessionSummary, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, PromptResponse, SetModelCredentialInput } from "@pi-cloud/shared";
+import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, PromptResponse, SetModelCredentialInput } from "@pi-cloud/shared";
 
 const API_BASE = "/api";
 
@@ -40,6 +40,74 @@ export class ApiClient {
 
   prompt(sessionId: string, message: string) {
     return this.request<PromptResponse>(`/sessions/${sessionId}/messages`, { method: "POST", body: { message } });
+  }
+
+  async promptStream(
+    sessionId: string,
+    message: string,
+    callbacks: {
+      onTrace: (item: AgentTraceItem) => void;
+      onComplete: (result: { assistantText: string; assistantTrace: AgentTraceItem[]; eventCount: number }) => void;
+      onError: (error: Error) => void;
+    }
+  ): Promise<void> {
+    const response = await fetch(`${API_BASE}/sessions/${sessionId}/messages/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {})
+      },
+      body: JSON.stringify({ message })
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      callbacks.onError(new Error(text || `HTTP ${response.status}`));
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      callbacks.onError(new Error("No response body"));
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+            if (data.type === "trace" && data.item) {
+              callbacks.onTrace(data.item as AgentTraceItem);
+            } else if (data.type === "done") {
+              callbacks.onComplete({
+                assistantText: data.assistantText ?? "",
+                assistantTrace: data.assistantTrace ?? [],
+                eventCount: data.eventCount ?? 0
+              });
+            } else if (data.type === "error") {
+              callbacks.onError(new Error(data.message ?? "Unknown error"));
+            }
+          } catch {
+            // Skip malformed JSON lines
+          }
+        }
+      }
+    } catch (error) {
+      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   browserStatus() {
