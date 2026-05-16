@@ -1,18 +1,18 @@
 # Pi Cloud Agent
 
-Cloud agent scaffold using [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi), NestJS, MySQL, React, Ant Design, and Ant Design X.
+基于 [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi)、NestJS、MySQL、React、Ant Design 和 Ant Design X 构建的云端 Agent 脚手架。
 
-## What Is Implemented
+## 已实现功能
 
-- Two backend layers: API backend plus sandbox service.
-- Pi RPC process runs in sandbox, not backend.
-- User-isolated workspace and user-isolated Pi config/skills folders.
-- NestJS backend with TypeORM entities and MySQL DDL.
-- React frontend using only Ant Design and Ant Design X base components.
-- Zinc-like dark theme.
-- Browser connection page that detects a Playwright extension ping, accepts an extension token, prefers user browser mode, and marks connections as new-tab-only.
+- 两层后端架构：API 后端 + 沙箱服务。
+- Pi RPC 进程运行在沙箱中，而非后端。
+- 用户隔离的工作空间，以及用户隔离的 Pi 配置/技能文件夹。
+- 基于 NestJS + TypeORM 实体 + MySQL DDL 的后端。
+- 仅使用 Ant Design 和 Ant Design X 基础组件的 React 前端。
+- Zinc 风格深色主题。
+- 浏览器连接页面，支持检测 Playwright 扩展心跳、接收扩展令牌、优先使用用户浏览器模式，并将连接标记为仅新标签页模式。
 
-## Quick Start
+## 快速开始
 
 ```bash
 npm install
@@ -21,14 +21,14 @@ mysql < database/schema.sql
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+打开 `http://localhost:5173`。
 
-## Services
+## 服务地址
 
-- Web: `http://localhost:5173`
-- Backend API: `http://localhost:3000/api`
-- Sandbox: `http://localhost:3001`
+- Web 前端：`http://localhost:5173`
+- 后端 API：`http://localhost:3000/api`
+- 沙箱服务：`http://localhost:3001`
 
-## Notes
+## 说明
 
-The sandbox service starts Pi in RPC mode with `cwd` set to the user's workspace and `PI_CODING_AGENT_DIR` set to that user's private Pi folder. That is the bridge that keeps Pi file operations, shell operations, sessions, and skills out of the API backend and separated per user.
+沙箱服务以 RPC 模式启动 Pi，并将 `cwd` 设置为该用户的工作空间，`PI_CODING_AGENT_DIR` 设置为该用户的私有 Pi 文件夹。这一机制确保 Pi 的文件操作、Shell 操作、会话和技能与 API 后端解耦，并按用户隔离。
