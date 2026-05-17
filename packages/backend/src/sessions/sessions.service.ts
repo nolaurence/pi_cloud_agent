@@ -32,9 +32,32 @@ export class SessionsService {
 
   async list(userId: string): Promise<AgentSessionSummary[]> {
     const sessions = await this.sessions.find({ where: { userId }, order: { updatedAt: "DESC" } });
+    const firstMessages = sessions.length
+      ? await this.messagesRepo
+          .createQueryBuilder("message")
+          .select("message.sessionId", "sessionId")
+          .addSelect("message.content", "content")
+          .where("message.sessionId IN (:...sessionIds)", { sessionIds: sessions.map((session) => session.id) })
+          .andWhere("message.role = :role", { role: "user" })
+          .andWhere(
+            "message.createdAt = " +
+              this.messagesRepo
+                .createQueryBuilder("firstMessage")
+                .subQuery()
+                .select("MIN(firstMessage.createdAt)")
+                .from(AgentMessageEntity, "firstMessage")
+                .where("firstMessage.sessionId = message.sessionId")
+                .andWhere("firstMessage.role = :role")
+                .getQuery()
+          )
+          .getRawMany<{ sessionId: string; content: string }>()
+      : [];
+    const firstMessageBySession = new Map(firstMessages.map((message) => [message.sessionId, message.content]));
+
     return sessions.map((session) => ({
       id: session.id,
       title: session.title,
+      firstUserMessage: firstMessageBySession.get(session.id),
       provider: session.provider,
       model: session.model,
       status: session.status,

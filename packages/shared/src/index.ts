@@ -10,6 +10,7 @@ export interface AuthUser {
 export interface AgentSessionSummary {
   id: string;
   title: string;
+  firstUserMessage?: string;
   provider?: string;
   model?: string;
   status: "idle" | "running" | "failed";

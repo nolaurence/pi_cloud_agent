@@ -251,7 +251,10 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                             setView("chat");
                           }}
                         >
-                          <List.Item.Meta title={session.title} description={`${session.status} · ${new Date(session.updatedAt).toLocaleString()}`} />
+                          <div className="session-row">
+                            <span className="session-title">{session.firstUserMessage || session.title}</span>
+                            <span className="session-time">{formatRelativeTime(session.updatedAt)}</span>
+                          </div>
                         </List.Item>
                       )}
                     />
@@ -466,6 +469,24 @@ function formatTraceRaw(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function formatRelativeTime(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (diffSeconds < 60) return "刚刚";
+  const minutes = Math.floor(diffSeconds / 60);
+  if (minutes < 60) return `${minutes} 分`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} 天`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks} 周`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} 月`;
+  return `${Math.floor(days / 365)} 年`;
 }
 
 function UserMenu({ user, onOpenSettings, onLogout }: { user: AuthResponse["user"]; onOpenSettings: () => void; onLogout: () => void }) {

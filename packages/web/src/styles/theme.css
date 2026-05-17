@@ -78,7 +78,7 @@ body {
   display: grid;
   grid-template-rows: 1fr auto;
   gap: 12px;
-  padding: 16px;
+  padding: 12px;
   border-right: 1px solid var(--pi-border);
   overflow: auto;
 }
@@ -101,18 +101,51 @@ body {
 }
 
 .session-heading {
-  margin-top: 14px;
+  margin: 12px 0 8px;
 }
 
 .session {
   cursor: pointer;
-  border-radius: 8px;
-  padding-inline: 10px !important;
+  border-radius: 7px;
+  padding: 8px 10px !important;
+  border: 0 !important;
 }
 
 .session:hover,
 .session.active {
   background: var(--pi-surface-muted);
+}
+
+.session-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 24px;
+}
+
+.session-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pi-text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-time {
+  flex: 0 0 auto;
+  color: var(--pi-text-muted);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.session-pane .ant-list-item-meta {
+  min-width: 0;
 }
 
 .chat-pane {
