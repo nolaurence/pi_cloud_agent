@@ -131,3 +131,12 @@ export interface CreateScheduledTaskInput {
 }
 
 export type UpdateScheduledTaskInput = Partial<CreateScheduledTaskInput>;
+
+export interface InstalledSkillSummary {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  installedAt: string;
+  updatedAt: string;
+}

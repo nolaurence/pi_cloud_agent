@@ -13,6 +13,7 @@ import { AgentMessageEntity } from "./sessions/agent-message.entity";
 import { AgentSessionEntity } from "./sessions/agent-session.entity";
 import { SessionsModule } from "./sessions/sessions.module";
 import { SandboxModule } from "./sandbox/sandbox.module";
+import { SkillsModule } from "./skills/skills.module";
 import { UserEntity } from "./users/user.entity";
 import { UsersModule } from "./users/users.module";
 
@@ -39,7 +40,8 @@ import { UsersModule } from "./users/users.module";
     SessionsModule,
     BrowserConnectionsModule,
     ModelCredentialsModule,
-    ScheduledTasksModule
+    ScheduledTasksModule,
+    SkillsModule
   ]
 })
 export class AppModule {}

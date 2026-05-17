@@ -1,7 +1,7 @@
-import { ClockCircleOutlined, CloudServerOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoadingOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, MoreOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, SunOutlined, UserOutlined } from "@ant-design/icons";
+import { ClockCircleOutlined, CloudServerOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoadingOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, MoreOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SunOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
 import { Bubble, Sender, XProvider } from "@ant-design/x";
 import { XMarkdown } from "@ant-design/x-markdown";
-import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, CreateScheduledTaskInput, ModelCredentialProvider, ModelCredentialStatus, ScheduledTaskRunSummary, ScheduledTaskScheduleType, ScheduledTaskSummary, SetModelCredentialInput } from "@pi-cloud/shared";
+import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, CreateScheduledTaskInput, InstalledSkillSummary, ModelCredentialProvider, ModelCredentialStatus, ScheduledTaskRunSummary, ScheduledTaskScheduleType, ScheduledTaskSummary, SetModelCredentialInput } from "@pi-cloud/shared";
 import { App as AntApp, Button, ConfigProvider, Dropdown, Empty, Flex, Form, Input, Layout, List, Modal, Segmented, Select, Space, Splitter, Switch, Tag, Typography, message } from "antd";
 import type { MenuProps } from "antd";
 import { useEffect, useMemo, useState } from "react";
@@ -15,7 +15,7 @@ const THEME_KEY = "pi-cloud-theme";
 
 type ThemeMode = "light" | "dark" | "system";
 type ResolvedTheme = "light" | "dark";
-type WorkspaceView = "chat" | "tasks" | "settings";
+type WorkspaceView = "chat" | "skills" | "tasks" | "settings";
 
 export function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -139,6 +139,7 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
   const [view, setView] = useState<WorkspaceView>("chat");
   const [senderValue, setSenderValue] = useState("");
   const [taskRefreshKey, setTaskRefreshKey] = useState(0);
+  const [skillRefreshKey, setSkillRefreshKey] = useState(0);
 
   const refresh = async () => {
     const next = await api.listSessions();
@@ -232,6 +233,9 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                 <Button className={view === "chat" ? "sidebar-command active" : "sidebar-command"} icon={<MessageOutlined />} type="text" onClick={() => setView("chat")}>
                   会话
                 </Button>
+                <Button className={view === "skills" ? "sidebar-command active" : "sidebar-command"} icon={<ToolOutlined />} type="text" onClick={() => setView("skills")}>
+                  技能
+                </Button>
                 <Button className={view === "tasks" ? "sidebar-command active" : "sidebar-command"} icon={<ClockCircleOutlined />} type="text" onClick={() => setView("tasks")}>
                   定时任务
                 </Button>
@@ -267,6 +271,8 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
           <Splitter.Panel>
             {view === "settings" ? (
               <SettingsView api={api} user={user} />
+            ) : view === "skills" ? (
+              <SkillsView api={api} refreshKey={skillRefreshKey} onChanged={() => setSkillRefreshKey((key) => key + 1)} />
             ) : view === "tasks" ? (
               <ScheduledTasksView api={api} refreshKey={taskRefreshKey} onChanged={() => setTaskRefreshKey((key) => key + 1)} />
             ) : (
@@ -516,6 +522,134 @@ function UserMenu({ user, onOpenSettings, onLogout }: { user: AuthResponse["user
       </Button>
     </Dropdown>
   );
+}
+
+function SkillsView({ api, refreshKey, onChanged }: { api: ApiClient; refreshKey: number; onChanged: () => void }) {
+  const [skills, setSkills] = useState<InstalledSkillSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const reload = async () => {
+    setLoading(true);
+    try {
+      setSkills(await api.listSkills());
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "加载技能失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void reload();
+  }, [refreshKey]);
+
+  const filteredSkills = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return skills;
+    return skills.filter((skill) => `${skill.name} ${skill.description ?? ""}`.toLowerCase().includes(keyword));
+  }, [skills, query]);
+
+  const installSkill = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const contentBase64 = await fileToBase64(file);
+      setSkills(await api.installSkill({ fileName: file.name, contentBase64 }));
+      message.success("技能已安装");
+      onChanged();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "安装技能失败");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const toggleSkill = async (skill: InstalledSkillSummary, enabled: boolean) => {
+    try {
+      setSkills(await api.setSkillEnabled(skill.id, enabled));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "更新技能状态失败");
+    }
+  };
+
+  return (
+    <section className="skills-pane">
+      <header className="skills-hero">
+        <div>
+          <Typography.Title level={2}>技能</Typography.Title>
+          <Typography.Text type="secondary">安装与管理技能，在对话中扩展 Pi Cloud Agent 的能力。</Typography.Text>
+        </div>
+        <Space className="skills-actions">
+          <Button aria-label="刷新技能" icon={<ReloadOutlined />} onClick={reload} />
+          <Input className="skills-search" prefix={<SearchOutlined />} placeholder="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <label className={uploading ? "skill-upload-button disabled" : "skill-upload-button"}>
+            <PlusOutlined />
+            <span>{uploading ? "安装中" : "安装技能"}</span>
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              disabled={uploading}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                void installSkill(file);
+              }}
+            />
+          </label>
+        </Space>
+      </header>
+      <section className="skills-banner">
+        <div>
+          <Typography.Title level={4}>为你精选的职场技能</Typography.Title>
+          <Typography.Text type="secondary">本地导入 zip 技能包，安装后可按用户独立启用或停用。</Typography.Text>
+        </div>
+      </section>
+      <div className="skills-tabs">
+        <span className="disabled-tab">技能市场</span>
+        <span className="disabled-tab">内置</span>
+        <span className="active-tab">用户安装 <Tag>{skills.length}</Tag></span>
+      </div>
+      <Typography.Text className="skills-section-label" strong>本地安装</Typography.Text>
+      <div className="skills-list">
+        {loading ? (
+          <Empty description="正在加载技能" />
+        ) : filteredSkills.length ? (
+          filteredSkills.map((skill) => <SkillRow key={skill.id} skill={skill} onToggle={toggleSkill} />)
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有匹配的技能" : "暂无已安装技能"} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SkillRow({ skill, onToggle }: { skill: InstalledSkillSummary; onToggle: (skill: InstalledSkillSummary, enabled: boolean) => void }) {
+  return (
+    <article className="skill-row">
+      <div className="skill-icon">
+        <ToolOutlined />
+      </div>
+      <div className="skill-copy">
+        <Typography.Text strong>{skill.name}</Typography.Text>
+        <Typography.Text type="secondary" ellipsis>{skill.description || "本地安装的技能包"}</Typography.Text>
+      </div>
+      <Switch checked={skill.enabled} onChange={(enabled) => onToggle(skill, enabled)} />
+    </article>
+  );
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.split(",").pop() ?? "" : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
 }
 
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];

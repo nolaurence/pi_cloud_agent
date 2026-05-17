@@ -1,4 +1,4 @@
-import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, CreateScheduledTaskInput, ModelCredentialProvider, ModelCredentialStatus, PromptResponse, ScheduledTaskRunSummary, ScheduledTaskSummary, SetModelCredentialInput, UpdateScheduledTaskInput } from "@pi-cloud/shared";
+import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, CreateScheduledTaskInput, InstalledSkillSummary, ModelCredentialProvider, ModelCredentialStatus, PromptResponse, ScheduledTaskRunSummary, ScheduledTaskSummary, SetModelCredentialInput, UpdateScheduledTaskInput } from "@pi-cloud/shared";
 
 const API_BASE = "/api";
 
@@ -156,6 +156,18 @@ export class ApiClient {
 
   listScheduledTaskRuns() {
     return this.request<ScheduledTaskRunSummary[]>("/scheduled-tasks/runs");
+  }
+
+  listSkills() {
+    return this.request<InstalledSkillSummary[]>("/skills");
+  }
+
+  installSkill(input: { fileName: string; contentBase64: string }) {
+    return this.request<InstalledSkillSummary[]>("/skills/install", { method: "PUT", body: input });
+  }
+
+  setSkillEnabled(skillId: string, enabled: boolean) {
+    return this.request<InstalledSkillSummary[]>(`/skills/${skillId}/enabled`, { method: "PUT", body: { enabled } });
   }
 
   private async request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
