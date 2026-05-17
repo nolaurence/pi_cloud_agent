@@ -6,3 +6,6 @@ data
 coverage
 *.log
 *.tsbuildinfo
+.idea
+.vscode
+.DS_Store

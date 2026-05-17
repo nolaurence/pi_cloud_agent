@@ -82,3 +82,52 @@ export interface PromptResponse {
   assistantText: string;
   assistantTrace?: AgentTraceItem[];
 }
+
+export type ScheduledTaskScheduleType = "daily" | "weekdays" | "weekly";
+export type ScheduledTaskStatus = "idle" | "running" | "failed";
+export type ScheduledTaskRunStatus = "running" | "success" | "failed";
+export type ScheduledTaskRunTrigger = "scheduled" | "manual";
+
+export interface ScheduledTaskSummary {
+  id: string;
+  title: string;
+  prompt: string;
+  scheduleType: ScheduledTaskScheduleType;
+  timeOfDay: string;
+  weekdays?: number[];
+  timezone: string;
+  enabled: boolean;
+  status: ScheduledTaskStatus;
+  lastRunAt?: string;
+  lastRunStatus?: ScheduledTaskRunStatus;
+  nextRunAt?: string;
+  runCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduledTaskRunSummary {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  trigger: ScheduledTaskRunTrigger;
+  status: ScheduledTaskRunStatus;
+  sessionId?: string;
+  output?: string;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+  createdAt: string;
+}
+
+export interface CreateScheduledTaskInput {
+  title: string;
+  prompt: string;
+  scheduleType: ScheduledTaskScheduleType;
+  timeOfDay: string;
+  weekdays?: number[];
+  timezone?: string;
+  enabled?: boolean;
+}
+
+export type UpdateScheduledTaskInput = Partial<CreateScheduledTaskInput>;

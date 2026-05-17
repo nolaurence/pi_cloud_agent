@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 import { BrowserConnectionEntity } from "../browser-connections/browser-connection.entity";
+import { ScheduledTaskEntity } from "../scheduled-tasks/scheduled-task.entity";
 import { AgentSessionEntity } from "../sessions/agent-session.entity";
 
 @Entity("users")
@@ -33,4 +34,7 @@ export class UserEntity {
 
   @OneToMany(() => BrowserConnectionEntity, (connection) => connection.user)
   browserConnections!: BrowserConnectionEntity[];
+
+  @OneToMany(() => ScheduledTaskEntity, (task) => task.user)
+  scheduledTasks!: ScheduledTaskEntity[];
 }

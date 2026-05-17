@@ -9,6 +9,7 @@ import { SessionsService } from "./sessions.service";
 @Module({
   imports: [TypeOrmModule.forFeature([AgentSessionEntity, AgentMessageEntity]), SandboxModule],
   controllers: [SessionsController],
-  providers: [SessionsService]
+  providers: [SessionsService],
+  exports: [SessionsService]
 })
 export class SessionsModule {}

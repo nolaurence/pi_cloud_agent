@@ -1,4 +1,4 @@
-import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, PromptResponse, SetModelCredentialInput } from "@pi-cloud/shared";
+import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, CreateScheduledTaskInput, ModelCredentialProvider, ModelCredentialStatus, PromptResponse, ScheduledTaskRunSummary, ScheduledTaskSummary, SetModelCredentialInput, UpdateScheduledTaskInput } from "@pi-cloud/shared";
 
 const API_BASE = "/api";
 
@@ -132,6 +132,30 @@ export class ApiClient {
 
   removeModelCredential(provider: ModelCredentialProvider) {
     return this.request<ModelCredentialStatus[]>(`/model-credentials/${provider}`, { method: "DELETE" });
+  }
+
+  listScheduledTasks() {
+    return this.request<ScheduledTaskSummary[]>("/scheduled-tasks");
+  }
+
+  createScheduledTask(input: CreateScheduledTaskInput) {
+    return this.request<ScheduledTaskSummary>("/scheduled-tasks", { method: "POST", body: input });
+  }
+
+  updateScheduledTask(taskId: string, input: UpdateScheduledTaskInput) {
+    return this.request<ScheduledTaskSummary>(`/scheduled-tasks/${taskId}`, { method: "PATCH", body: input });
+  }
+
+  removeScheduledTask(taskId: string) {
+    return this.request<{ ok: true }>(`/scheduled-tasks/${taskId}`, { method: "DELETE" });
+  }
+
+  runScheduledTask(taskId: string) {
+    return this.request<ScheduledTaskRunSummary>(`/scheduled-tasks/${taskId}/run`, { method: "POST", body: {} });
+  }
+
+  listScheduledTaskRuns() {
+    return this.request<ScheduledTaskRunSummary[]>("/scheduled-tasks/runs");
   }
 
   private async request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {

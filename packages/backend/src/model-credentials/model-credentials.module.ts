@@ -6,6 +6,7 @@ import { ModelCredentialsService } from "./model-credentials.service";
 @Module({
   imports: [SandboxModule],
   controllers: [ModelCredentialsController],
-  providers: [ModelCredentialsService]
+  providers: [ModelCredentialsService],
+  exports: [ModelCredentialsService]
 })
 export class ModelCredentialsModule {}

@@ -1,8 +1,8 @@
-import { CloudServerOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoadingOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, SunOutlined, UserOutlined } from "@ant-design/icons";
+import { ClockCircleOutlined, CloudServerOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoadingOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, MoreOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, SunOutlined, UserOutlined } from "@ant-design/icons";
 import { Bubble, Sender, XProvider } from "@ant-design/x";
 import { XMarkdown } from "@ant-design/x-markdown";
-import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, SetModelCredentialInput } from "@pi-cloud/shared";
-import { App as AntApp, Button, ConfigProvider, Dropdown, Empty, Flex, Form, Input, Layout, List, Modal, Segmented, Space, Splitter, Tag, Typography, message } from "antd";
+import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, CreateScheduledTaskInput, ModelCredentialProvider, ModelCredentialStatus, ScheduledTaskRunSummary, ScheduledTaskScheduleType, ScheduledTaskSummary, SetModelCredentialInput } from "@pi-cloud/shared";
+import { App as AntApp, Button, ConfigProvider, Dropdown, Empty, Flex, Form, Input, Layout, List, Modal, Segmented, Select, Space, Splitter, Switch, Tag, Typography, message } from "antd";
 import type { MenuProps } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { ApiClient, type AuthResponse } from "../api/client";
@@ -15,7 +15,7 @@ const THEME_KEY = "pi-cloud-theme";
 
 type ThemeMode = "light" | "dark" | "system";
 type ResolvedTheme = "light" | "dark";
-type WorkspaceView = "chat" | "settings";
+type WorkspaceView = "chat" | "tasks" | "settings";
 
 export function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -138,6 +138,7 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<WorkspaceView>("chat");
   const [senderValue, setSenderValue] = useState("");
+  const [taskRefreshKey, setTaskRefreshKey] = useState(0);
 
   const refresh = async () => {
     const next = await api.listSessions();
@@ -231,6 +232,9 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                 <Button className={view === "chat" ? "sidebar-command active" : "sidebar-command"} icon={<MessageOutlined />} type="text" onClick={() => setView("chat")}>
                   会话
                 </Button>
+                <Button className={view === "tasks" ? "sidebar-command active" : "sidebar-command"} icon={<ClockCircleOutlined />} type="text" onClick={() => setView("tasks")}>
+                  定时任务
+                </Button>
                 {view === "chat" ? (
                   <>
                     <Flex justify="space-between" align="center" className="session-heading">
@@ -267,6 +271,8 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
           <Splitter.Panel>
             {view === "settings" ? (
               <SettingsView api={api} user={user} />
+            ) : view === "tasks" ? (
+              <ScheduledTasksView api={api} refreshKey={taskRefreshKey} onChanged={() => setTaskRefreshKey((key) => key + 1)} />
             ) : (
               <section className="chat-pane">
                 {active ? (
@@ -514,6 +520,364 @@ function UserMenu({ user, onOpenSettings, onLogout }: { user: AuthResponse["user
       </Button>
     </Dropdown>
   );
+}
+
+const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
+
+function ScheduledTasksView({ api, refreshKey, onChanged }: { api: ApiClient; refreshKey: number; onChanged: () => void }) {
+  const [tasks, setTasks] = useState<ScheduledTaskSummary[]>([]);
+  const [runs, setRuns] = useState<ScheduledTaskRunSummary[]>([]);
+  const [tab, setTab] = useState<"tasks" | "runs">("tasks");
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<ScheduledTaskSummary>();
+  const [saving, setSaving] = useState(false);
+  const [runningTaskId, setRunningTaskId] = useState<string>();
+  const [sortMode, setSortMode] = useState<"created-desc" | "created-asc" | "next-asc">("created-desc");
+
+  const reload = async () => {
+    setLoading(true);
+    try {
+      const [nextTasks, nextRuns] = await Promise.all([api.listScheduledTasks(), api.listScheduledTaskRuns()]);
+      setTasks(nextTasks);
+      setRuns(nextRuns);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "加载定时任务失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void reload();
+  }, [refreshKey]);
+
+  const sortedTasks = useMemo(() => {
+    const next = tasks.slice();
+    if (sortMode === "created-asc") return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    if (sortMode === "next-asc") {
+      return next.sort((a, b) => {
+        const aTime = a.nextRunAt ? new Date(a.nextRunAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const bTime = b.nextRunAt ? new Date(b.nextRunAt).getTime() : Number.MAX_SAFE_INTEGER;
+        return aTime - bTime;
+      });
+    }
+    return next.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [tasks, sortMode]);
+
+  const saveTask = async (values: ScheduledTaskFormValues) => {
+    const payload = formValuesToTaskInput(values);
+    setSaving(true);
+    try {
+      if (editingTask) {
+        await api.updateScheduledTask(editingTask.id, payload);
+        message.success("定时任务已更新");
+      } else {
+        await api.createScheduledTask(payload);
+        message.success("定时任务已创建");
+      }
+      setModalOpen(false);
+      setEditingTask(undefined);
+      onChanged();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "保存定时任务失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleTask = async (task: ScheduledTaskSummary, enabled: boolean) => {
+    try {
+      const next = await api.updateScheduledTask(task.id, { enabled });
+      setTasks((items) => items.map((item) => (item.id === next.id ? next : item)));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "更新任务状态失败");
+    }
+  };
+
+  const runTask = async (task: ScheduledTaskSummary) => {
+    setRunningTaskId(task.id);
+    try {
+      await api.runScheduledTask(task.id);
+      message.success("任务执行完成");
+      onChanged();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "任务执行失败");
+    } finally {
+      setRunningTaskId(undefined);
+    }
+  };
+
+  const removeTask = async (task: ScheduledTaskSummary) => {
+    Modal.confirm({
+      title: "删除定时任务？",
+      content: task.title,
+      okText: "删除",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: async () => {
+        await api.removeScheduledTask(task.id);
+        message.success("定时任务已删除");
+        onChanged();
+      }
+    });
+  };
+
+  return (
+    <section className="tasks-pane">
+      <header className="tasks-hero">
+        <div>
+          <Typography.Title level={2}>定时任务</Typography.Title>
+          <Typography.Text type="secondary">按计划自动执行任务，也可以随时手动触发。在任意对话中描述你想定期做的事，即可快速创建。</Typography.Text>
+        </div>
+        <Space>
+          <Button aria-label="刷新定时任务" icon={<ReloadOutlined />} onClick={reload} />
+          <Button className="qoder-button" onClick={() => {
+            setEditingTask(undefined);
+            setModalOpen(true);
+          }}>
+            通过 QoderWork 创建
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => {
+            setEditingTask(undefined);
+            setModalOpen(true);
+          }}>
+            新建定时任务
+          </Button>
+        </Space>
+      </header>
+      <div className="task-wake-banner">
+        <ClockCircleOutlined />
+        <span>定时任务仅在服务运行时执行</span>
+        <span className="task-wake-spacer" />
+        <span>保持系统唤醒</span>
+        <Switch size="small" />
+      </div>
+      <div className="tasks-tabs">
+        <Segmented value={tab} onChange={(value) => setTab(value as "tasks" | "runs")} options={[{ label: "我的定时任务", value: "tasks" }, { label: "执行记录", value: "runs" }]} />
+        {tab === "tasks" ? (
+          <Select
+            className="task-sort-select"
+            value={sortMode}
+            onChange={setSortMode}
+            options={[
+              { label: "按创建时间倒序", value: "created-desc" },
+              { label: "按创建时间正序", value: "created-asc" },
+              { label: "按下次执行时间", value: "next-asc" }
+            ]}
+          />
+        ) : (
+          <Space>
+            <Segmented size="small" defaultValue="day" options={[{ label: "按天", value: "day" }, { label: "按周", value: "week" }, { label: "按月", value: "month" }]} />
+            <Select className="task-sort-select" value="all" options={[{ label: "全部任务", value: "all" }]} />
+            <Select className="task-sort-select" value="all" options={[{ label: "全部状态", value: "all" }]} />
+          </Space>
+        )}
+      </div>
+      {tab === "tasks" ? (
+        <div className="task-grid">
+          {loading ? <Empty description="正在加载定时任务" /> : sortedTasks.length ? sortedTasks.map((task) => (
+            <ScheduledTaskCard
+              key={task.id}
+              task={task}
+              running={runningTaskId === task.id}
+              onToggle={toggleTask}
+              onRun={runTask}
+              onEdit={(item) => {
+                setEditingTask(item);
+                setModalOpen(true);
+              }}
+              onDelete={removeTask}
+            />
+          )) : <Empty className="tasks-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无定时任务" />}
+        </div>
+      ) : (
+        <ScheduledTaskRuns runs={runs} loading={loading} />
+      )}
+      <ScheduledTaskModal
+        open={modalOpen}
+        task={editingTask}
+        saving={saving}
+        onCancel={() => {
+          setModalOpen(false);
+          setEditingTask(undefined);
+        }}
+        onSubmit={saveTask}
+      />
+    </section>
+  );
+}
+
+function ScheduledTaskCard({ task, running, onToggle, onRun, onEdit, onDelete }: { task: ScheduledTaskSummary; running: boolean; onToggle: (task: ScheduledTaskSummary, enabled: boolean) => void; onRun: (task: ScheduledTaskSummary) => void; onEdit: (task: ScheduledTaskSummary) => void; onDelete: (task: ScheduledTaskSummary) => void }) {
+  const items: MenuProps["items"] = [
+    { key: "run", label: "立即执行", icon: <PlayCircleOutlined />, onClick: () => onRun(task) },
+    { key: "edit", label: "编辑", icon: <SettingOutlined />, onClick: () => onEdit(task) },
+    { type: "divider" },
+    { key: "delete", label: "删除", danger: true, onClick: () => onDelete(task) }
+  ];
+
+  return (
+    <article className="task-card">
+      <div className="task-card-top">
+        <Switch checked={task.enabled} onChange={(checked) => onToggle(task, checked)} />
+        <Dropdown menu={{ items }} trigger={["click"]}>
+          <Button type="text" icon={<MoreOutlined />} aria-label="任务操作" />
+        </Dropdown>
+      </div>
+      <Typography.Title level={4}>{task.title}</Typography.Title>
+      <Typography.Paragraph className="task-prompt" ellipsis={{ rows: 2 }}>
+        {task.prompt}
+      </Typography.Paragraph>
+      <div className="task-card-divider" />
+      <Flex justify="space-between" align="center" gap={10}>
+        <span className="task-time-pill">
+          <ClockCircleOutlined />
+          {formatTaskSchedule(task)}
+        </span>
+        <Button size="small" icon={<PlayCircleOutlined />} loading={running || task.status === "running"} onClick={() => onRun(task)}>
+          执行
+        </Button>
+      </Flex>
+    </article>
+  );
+}
+
+function ScheduledTaskRuns({ runs, loading }: { runs: ScheduledTaskRunSummary[]; loading: boolean }) {
+  if (loading) return <Empty className="task-run-empty" description="正在加载执行记录" />;
+  if (!runs.length) {
+    return (
+      <div className="task-run-empty">
+        <ClockCircleOutlined />
+        <Typography.Title level={4}>暂无执行记录</Typography.Title>
+        <Typography.Text type="secondary">当定时任务开始执行后，记录将显示在这里</Typography.Text>
+      </div>
+    );
+  }
+
+  return (
+    <List
+      className="task-run-list"
+      dataSource={runs}
+      renderItem={(run) => (
+        <List.Item>
+          <List.Item.Meta
+            avatar={<Tag color={run.status === "success" ? "success" : run.status === "failed" ? "error" : "processing"}>{run.status === "success" ? "成功" : run.status === "failed" ? "失败" : "运行中"}</Tag>}
+            title={<span>{run.taskTitle}</span>}
+            description={`${run.trigger === "manual" ? "手动触发" : "定时触发"} · ${formatDateTime(run.startedAt)}`}
+          />
+          {run.output ? <Typography.Text className="task-run-output" type="secondary" ellipsis>{run.output}</Typography.Text> : run.error ? <Typography.Text type="danger" ellipsis>{run.error}</Typography.Text> : null}
+        </List.Item>
+      )}
+    />
+  );
+}
+
+interface ScheduledTaskFormValues {
+  title: string;
+  scheduleType: ScheduledTaskScheduleType;
+  timeOfDay: string;
+  weekdays?: number[];
+  prompt: string;
+  enabled?: boolean;
+}
+
+function ScheduledTaskModal({ open, task, saving, onCancel, onSubmit }: { open: boolean; task?: ScheduledTaskSummary; saving: boolean; onCancel: () => void; onSubmit: (values: ScheduledTaskFormValues) => void }) {
+  const [form] = Form.useForm<ScheduledTaskFormValues>();
+  const scheduleType = Form.useWatch("scheduleType", form) ?? task?.scheduleType ?? "weekly";
+
+  useEffect(() => {
+    if (!open) return;
+    form.setFieldsValue({
+      title: task?.title ?? "",
+      scheduleType: task?.scheduleType ?? "weekly",
+      timeOfDay: task?.timeOfDay ?? "10:00",
+      weekdays: task?.weekdays ?? [1],
+      prompt: task?.prompt ?? "",
+      enabled: task?.enabled ?? true
+    });
+  }, [open, task, form]);
+
+  return (
+    <Modal
+      className="task-modal"
+      title={task ? "编辑任务" : "新建任务"}
+      open={open}
+      width={640}
+      onCancel={onCancel}
+      footer={[
+        <Button key="cancel" onClick={onCancel}>取消</Button>,
+        <Button key="submit" type="primary" loading={saving} onClick={() => form.submit()}>保存</Button>
+      ]}
+    >
+      <Typography.Paragraph type="secondary">按计划自动执行任务，也可随时手动触发。在任意对话中描述你想定期做的事，即可快速创建</Typography.Paragraph>
+      <Form form={form} layout="vertical" requiredMark={false} onFinish={onSubmit}>
+        <Form.Item name="title" label="任务名称" rules={[{ required: true, message: "请输入任务名称" }]}>
+          <Input placeholder="每周竞品动态追踪" />
+        </Form.Item>
+        <Form.Item label="计划时间" className="task-time-form-row">
+          <Space.Compact block>
+            <Form.Item name="scheduleType" noStyle>
+              <Select
+                options={[
+                  { label: "每天", value: "daily" },
+                  { label: "工作日", value: "weekdays" },
+                  { label: "每周", value: "weekly" }
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="timeOfDay" noStyle rules={[{ required: true, pattern: /^\d{2}:\d{2}$/, message: "请输入 HH:mm 时间" }]}>
+              <Input type="time" />
+            </Form.Item>
+          </Space.Compact>
+        </Form.Item>
+        {scheduleType === "weekly" ? (
+          <Form.Item name="weekdays" rules={[{ required: true, message: "请选择执行日期" }]}>
+            <Segmented
+              className="weekday-picker"
+              multiple
+              options={[
+                { label: "一", value: 1 },
+                { label: "二", value: 2 },
+                { label: "三", value: 3 },
+                { label: "四", value: 4 },
+                { label: "五", value: 5 },
+                { label: "六", value: 6 },
+                { label: "日", value: 0 }
+              ]}
+            />
+          </Form.Item>
+        ) : null}
+        <Form.Item name="prompt" label="让 QoderWork 帮你做什么..." rules={[{ required: true, message: "请输入任务内容" }]}>
+          <Input.TextArea rows={8} placeholder={"请帮我追踪以下竞品的最新动态：\n- Cursor\n- Windsurf\n- GitHub Copilot"} />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+function formValuesToTaskInput(values: ScheduledTaskFormValues): CreateScheduledTaskInput {
+  return {
+    title: values.title,
+    prompt: values.prompt,
+    scheduleType: values.scheduleType,
+    timeOfDay: values.timeOfDay,
+    weekdays: values.scheduleType === "weekly" ? values.weekdays : undefined,
+    timezone: "Asia/Shanghai",
+    enabled: values.enabled ?? true
+  };
+}
+
+function formatTaskSchedule(task: ScheduledTaskSummary) {
+  if (task.scheduleType === "daily") return `每天 ${task.timeOfDay}`;
+  if (task.scheduleType === "weekdays") return `工作日 ${task.timeOfDay}`;
+  const days = (task.weekdays?.length ? task.weekdays : [1]).map((day) => WEEKDAY_LABELS[day]).join("");
+  return `每周${days} ${task.timeOfDay}`;
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function SettingsView({ api, user }: { api: ApiClient; user: AuthResponse["user"] }) {

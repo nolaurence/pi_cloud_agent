@@ -55,3 +55,45 @@ CREATE TABLE IF NOT EXISTS `browser_connections` (
   KEY `idx_browser_connections_user_status` (`user_id`, `status`),
   CONSTRAINT `fk_browser_connections_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `scheduled_tasks` (
+  `id` char(36) NOT NULL,
+  `user_id` char(36) NOT NULL,
+  `title` varchar(180) NOT NULL,
+  `prompt` longtext NOT NULL,
+  `schedule_type` varchar(24) NOT NULL,
+  `time_of_day` varchar(5) NOT NULL,
+  `weekdays` json DEFAULT NULL,
+  `timezone` varchar(80) NOT NULL DEFAULT 'Asia/Shanghai',
+  `enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `status` varchar(24) NOT NULL DEFAULT 'idle',
+  `last_run_at` datetime DEFAULT NULL,
+  `last_run_status` varchar(24) DEFAULT NULL,
+  `next_run_at` datetime DEFAULT NULL,
+  `run_count` int NOT NULL DEFAULT 0,
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `idx_scheduled_tasks_user_updated` (`user_id`, `updated_at`),
+  KEY `idx_scheduled_tasks_due` (`enabled`, `next_run_at`),
+  CONSTRAINT `fk_scheduled_tasks_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `scheduled_task_runs` (
+  `id` char(36) NOT NULL,
+  `task_id` char(36) NOT NULL,
+  `user_id` char(36) NOT NULL,
+  `trigger` varchar(24) NOT NULL,
+  `status` varchar(24) NOT NULL DEFAULT 'running',
+  `session_id` char(36) DEFAULT NULL,
+  `output` longtext DEFAULT NULL,
+  `error` longtext DEFAULT NULL,
+  `started_at` datetime NOT NULL,
+  `finished_at` datetime DEFAULT NULL,
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  KEY `idx_scheduled_task_runs_user_created` (`user_id`, `created_at`),
+  KEY `idx_scheduled_task_runs_task_created` (`task_id`, `created_at`),
+  CONSTRAINT `fk_scheduled_task_runs_task` FOREIGN KEY (`task_id`) REFERENCES `scheduled_tasks` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_scheduled_task_runs_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
