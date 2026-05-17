@@ -593,7 +593,7 @@ function CredentialRow({ item, saving, onSave, onRemove }: { item: ModelCredenti
         <Tag color={item.configured ? "success" : "default"}>{item.configured ? "已保存" : "未设置"}</Tag>
         {item.model ? <Typography.Text type="secondary">{item.model}</Typography.Text> : null}
       </div>
-      <Form form={form} className="credential-form" layout="inline" onFinish={submit}>
+      <Form form={form} className="credential-form" layout="vertical" onFinish={submit}>
         {isSiliconFlow ? (
           <>
             <Form.Item name="baseUrl" initialValue={item.baseUrl ?? "https://api.siliconflow.cn/v1"} rules={[{ required: true, type: "url", message: "请输入 OpenAI 协议 Base URL" }]}>
@@ -607,12 +607,14 @@ function CredentialRow({ item, saving, onSave, onRemove }: { item: ModelCredenti
         <Form.Item name="apiKey" rules={[{ required: true, min: 8, message: "请输入 API key" }]}>
           <Input.Password placeholder={item.configured ? "输入新 key 以覆盖" : "粘贴 API key"} autoComplete="off" />
         </Form.Item>
-        <Button htmlType="submit" type="primary" loading={saving}>
-          保存
-        </Button>
-        <Button disabled={!item.configured} loading={saving} onClick={onRemove}>
-          移除
-        </Button>
+        <div className="credential-actions">
+          <Button htmlType="submit" type="primary" loading={saving}>
+            保存
+          </Button>
+          <Button disabled={!item.configured} loading={saving} onClick={onRemove}>
+            移除
+          </Button>
+        </div>
       </Form>
     </List.Item>
   );
