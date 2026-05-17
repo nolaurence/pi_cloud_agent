@@ -15,15 +15,15 @@
 }
 
 :root[data-theme="light"] {
-  --pi-bg: #ffffff;
-  --pi-surface: #ffffff;
-  --pi-surface-muted: #f4f4f5;
-  --pi-border: #e4e4e7;
-  --pi-border-strong: #d4d4d8;
+  --pi-bg: #f7f5ef;
+  --pi-surface: #fffdfa;
+  --pi-surface-muted: #efede6;
+  --pi-border: #e6e1d8;
+  --pi-border-strong: #d7d0c4;
   --pi-text: #18181b;
-  --pi-text-muted: #71717a;
-  --pi-auth-overlay-start: rgba(244, 244, 245, 0.72);
-  --pi-auth-overlay-end: rgba(250, 250, 250, 0.96);
+  --pi-text-muted: #777267;
+  --pi-auth-overlay-start: rgba(239, 237, 230, 0.72);
+  --pi-auth-overlay-end: rgba(247, 245, 239, 0.96);
 }
 
 * {
@@ -96,11 +96,27 @@ body {
   justify-content: flex-start;
   height: 38px;
   color: var(--pi-text);
+  border: 0 !important;
+  background: transparent !important;
 }
 
 .sidebar-command.active,
 .sidebar-command:hover {
   background: var(--pi-surface-muted) !important;
+}
+
+:root[data-theme="dark"] .sidebar-command:not(:disabled) {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--pi-text) !important;
+}
+
+:root[data-theme="dark"] .sidebar-command.active:not(:disabled),
+:root[data-theme="dark"] .sidebar-command:not(:disabled):hover,
+:root[data-theme="dark"] .sidebar-command:not(:disabled):focus-visible {
+  border-color: transparent !important;
+  background: var(--pi-surface-muted) !important;
+  color: var(--pi-text) !important;
 }
 
 .session-heading {
@@ -195,10 +211,6 @@ body {
 .tasks-hero .ant-typography-secondary {
   display: block;
   max-width: 720px;
-}
-
-.qoder-button {
-  background: color-mix(in srgb, var(--pi-surface-muted) 78%, transparent) !important;
 }
 
 .task-wake-banner {

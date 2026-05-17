@@ -235,35 +235,31 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                 <Button className={view === "tasks" ? "sidebar-command active" : "sidebar-command"} icon={<ClockCircleOutlined />} type="text" onClick={() => setView("tasks")}>
                   定时任务
                 </Button>
-                {view === "chat" ? (
-                  <>
-                    <Flex justify="space-between" align="center" className="session-heading">
-                      <Typography.Title level={4}>会话</Typography.Title>
-                      <Space>
-                        <Button aria-label="刷新会话" icon={<ReloadOutlined />} onClick={refresh} />
-                        <Button aria-label="新建会话" icon={<PlusOutlined />} type="primary" onClick={createSession} />
-                      </Space>
-                    </Flex>
-                    <List
-                      dataSource={sessions}
-                      locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无会话" /> }}
-                      renderItem={(session) => (
-                        <List.Item
-                          className={active?.id === session.id ? "session active" : "session"}
-                          onClick={() => {
-                            setActive(session);
-                            setView("chat");
-                          }}
-                        >
-                          <div className="session-row">
-                            <span className="session-title">{session.firstUserMessage || session.title}</span>
-                            <span className="session-time">{formatRelativeTime(session.updatedAt)}</span>
-                          </div>
-                        </List.Item>
-                      )}
-                    />
-                  </>
-                ) : null}
+                <Flex justify="space-between" align="center" className="session-heading">
+                  <Typography.Title level={4}>会话</Typography.Title>
+                  <Space>
+                    <Button aria-label="刷新会话" icon={<ReloadOutlined />} onClick={refresh} />
+                    <Button aria-label="新建会话" icon={<PlusOutlined />} type="primary" onClick={createSession} />
+                  </Space>
+                </Flex>
+                <List
+                  dataSource={sessions}
+                  locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无会话" /> }}
+                  renderItem={(session) => (
+                    <List.Item
+                      className={active?.id === session.id ? "session active" : "session"}
+                      onClick={() => {
+                        setActive(session);
+                        setView("chat");
+                      }}
+                    >
+                      <div className="session-row">
+                        <span className="session-title">{session.firstUserMessage || session.title}</span>
+                        <span className="session-time">{formatRelativeTime(session.updatedAt)}</span>
+                      </div>
+                    </List.Item>
+                  )}
+                />
               </div>
               <UserMenu user={user} onOpenSettings={() => setView("settings")} onLogout={onLogout} />
             </aside>
@@ -632,12 +628,6 @@ function ScheduledTasksView({ api, refreshKey, onChanged }: { api: ApiClient; re
         </div>
         <Space>
           <Button aria-label="刷新定时任务" icon={<ReloadOutlined />} onClick={reload} />
-          <Button className="qoder-button" onClick={() => {
-            setEditingTask(undefined);
-            setModalOpen(true);
-          }}>
-            通过 QoderWork 创建
-          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => {
             setEditingTask(undefined);
             setModalOpen(true);
