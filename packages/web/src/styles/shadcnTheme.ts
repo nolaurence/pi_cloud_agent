@@ -141,6 +141,9 @@ export function getShadcnThemeConfig(isDark: boolean): ConfigProviderProps {
         margin: 16,
         marginSM: 12,
         marginLG: 24,
+        fontSize: 14,
+        fontSizeSM: 12,
+        fontSizeLG: 15,
         boxShadow: isDark ? "0 1px 2px rgba(0, 0, 0, 0.32)" : "0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)",
         boxShadowSecondary: isDark ? "0 8px 24px rgba(0, 0, 0, 0.32)" : "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)"
       },
@@ -149,15 +152,17 @@ export function getShadcnThemeConfig(isDark: boolean): ConfigProviderProps {
           primaryShadow: "none",
           defaultShadow: "none",
           dangerShadow: "none",
-          defaultBg: tone.card,
+          defaultBg: isDark ? "#09090b" : tone.card,
           defaultColor: tone.foreground,
-          defaultBorderColor: tone.border,
-          defaultHoverBg: tone.accent,
+          defaultBorderColor: isDark ? "#3f3f46" : tone.border,
+          defaultHoverBg: isDark ? "#18181b" : tone.accent,
           defaultHoverColor: tone.accentForeground,
           defaultHoverBorderColor: isDark ? "#3f3f46" : "#d4d4d8",
           defaultActiveBg: isDark ? "#3f3f46" : "#e4e4e7",
           defaultActiveBorderColor: isDark ? "#52525b" : "#d4d4d8",
-          borderRadius: 6
+          borderRadius: 8,
+          controlHeight: 32,
+          controlHeightSM: 28
         },
         Input: {
           activeShadow: "none",
