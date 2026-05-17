@@ -1,4 +1,4 @@
-import { BulbOutlined, CheckCircleOutlined, CloudServerOutlined, CodeOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoadingOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, SunOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
+import { CloudServerOutlined, DesktopOutlined, KeyOutlined, LaptopOutlined, LoadingOutlined, LoginOutlined, LogoutOutlined, MenuOutlined, MessageOutlined, MoonOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, SunOutlined, UserOutlined } from "@ant-design/icons";
 import { Bubble, Sender, XProvider } from "@ant-design/x";
 import { XMarkdown } from "@ant-design/x-markdown";
 import type { AgentSessionSummary, AgentTraceItem, BrowserConnectionStatus, ChatMessage, ModelCredentialProvider, ModelCredentialStatus, SetModelCredentialInput } from "@pi-cloud/shared";
@@ -181,7 +181,7 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
     try {
       await api.promptStream(active.id, messageContent, {
         onTrace: (item) => {
-          setStreamingTrace((prev) => [...prev, item]);
+          setStreamingTrace((prev) => mergeStreamingTrace(prev, item));
         },
         onComplete: (result) => {
           setMessages((items) => [
@@ -272,31 +272,11 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
                       {messages.map((item) => (
                         <ChatMessageView key={item.id} message={item} />
                       ))}
-                      {loading ? (
-                        <div className="message-row assistant">
-                          <div className="assistant-message loading">
-                            <LoadingOutlined spin />
-                            <Typography.Text type="secondary">Pi is working...</Typography.Text>
-                            {streamingTrace.length > 0 ? (
-                              <details className="agent-trace streaming" open>
-                                <summary>
-                                  <span className="trace-summary-main">
-                                    <ToolOutlined />
-                                    Pi agent 处理中（{streamingTrace.length} 步）
-                                  </span>
-                                </summary>
-                                <div className="trace-list">
-                                  {streamingTrace.map((item) => (
-                                    <TraceItem key={`${item.type}-${item.id}`} item={item} />
-                                  ))}
-                                </div>
-                              </details>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
+                      {loading ? <PendingAssistantTurn trace={streamingTrace} /> : null}
                     </div>
-                    <Sender placeholder="向云端 agent 发送任务" value={senderValue} loading={loading} onChange={setSenderValue} onSubmit={send} />
+                    <div className="composer-wrap">
+                      <Sender placeholder="向云端 agent 发送任务" value={senderValue} loading={loading} onChange={setSenderValue} onSubmit={send} />
+                    </div>
                   </>
                 ) : (
                   <Empty description="创建一个会话开始" />
@@ -313,8 +293,8 @@ function Workspace({ api, user, onLogout, themeMode, onThemeModeChange }: { api:
 function ChatMessageView({ message: item }: { message: ChatMessage }) {
   if (item.role === "user") {
     return (
-      <div className="message-row user">
-        <Bubble placement="end" content={item.content} />
+      <div className="chat-turn chat-turn-user">
+        <Bubble className="user-message-bubble" placement="end" content={item.content} />
       </div>
     );
   }
@@ -322,27 +302,20 @@ function ChatMessageView({ message: item }: { message: ChatMessage }) {
   if (item.role === "assistant") {
     const trace = item.metadata?.trace as AgentTraceItem[] | undefined;
     const eventCount = typeof item.metadata?.eventCount === "number" ? item.metadata.eventCount : undefined;
+    const processTrace = getProcessTrace(trace, item.content);
 
-    // Combine trace items chronologically: thinking → tools → final answer
-    // If there's a trace, show it inline; otherwise just show markdown
     return (
-      <div className="message-row assistant">
+      <div className="chat-turn chat-turn-assistant">
         <article className="assistant-message">
-          {trace?.length ? (
-            <InlineTrace trace={trace} finalAnswer={item.content} />
-          ) : (
-            <XMarkdown className="assistant-content" content={item.content} />
-          )}
-          {!trace?.length && eventCount ? (
-            <AgentTracePanel trace={undefined} eventCount={eventCount} />
-          ) : null}
+          <AgentProcess trace={processTrace} eventCount={eventCount} />
+          {item.content ? <XMarkdown className="assistant-content" content={item.content} /> : null}
         </article>
       </div>
     );
   }
 
   return (
-    <div className="message-row assistant">
+    <div className="chat-turn chat-turn-assistant">
       <article className="assistant-message system">
         <Typography.Text type="secondary">{item.content}</Typography.Text>
       </article>
@@ -350,103 +323,140 @@ function ChatMessageView({ message: item }: { message: ChatMessage }) {
   );
 }
 
-/** Render trace items chronologically followed by the final answer. */
-function InlineTrace({ trace, finalAnswer }: { trace: AgentTraceItem[]; finalAnswer: string }) {
-  // Separate thinking items from non-thinking
-  const thinkingItems = trace.filter((t) => t.type === "thinking");
-  const thinkingContent = thinkingItems
-    .filter((t) => t.status === "done" && t.detail)
-    .map((t) => t.detail)
-    .join("");
-  const thinkingStream = thinkingItems
-    .filter((t) => t.status === "running")
-    .map((t) => t.title)
-    .join("");
-
-  const toolItems = trace.filter((t) => t.type === "tool_call" || t.type === "tool_update" || t.type === "tool_result");
-
+function PendingAssistantTurn({ trace }: { trace: AgentTraceItem[] }) {
   return (
-    <div className="inline-trace">
-      {/* Thinking section */}
-      {(thinkingContent || thinkingStream) ? (
-        <details className="trace-item thinking" open>
-          <summary>
-            <span className="trace-icon"><BulbOutlined /></span>
-            <span className="trace-title">🧠 推理过程</span>
-          </summary>
-          <pre className="trace-detail thinking-content">{thinkingContent || thinkingStream || "推理中…"}</pre>
-        </details>
-      ) : null}
-
-      {/* Tool calls section */}
-      {toolItems.length > 0 ? (
-        <div className="trace-section tools">
-          {toolItems.map((item) => (
-            <TraceItem key={`${item.type}-${item.id}`} item={item} />
-          ))}
+    <div className="chat-turn chat-turn-assistant">
+      <article className="assistant-message assistant-message-pending">
+        <div className="assistant-working">
+          <LoadingOutlined spin />
+          <Typography.Text type="secondary">Pi agent 正在处理</Typography.Text>
         </div>
-      ) : null}
-
-      {/* Final answer */}
-      {finalAnswer ? (
-        <XMarkdown className="assistant-content" content={finalAnswer} />
-      ) : null}
+        <AgentProcess trace={getProcessTrace(trace)} eventCount={trace.length} streaming />
+      </article>
     </div>
   );
 }
 
-function AgentTracePanel({ trace, eventCount }: { trace?: AgentTraceItem[]; eventCount?: number }) {
-  if (!trace?.length && !eventCount) return null;
-
+function AgentProcess({ trace, eventCount, streaming = false }: { trace?: AgentTraceItem[]; eventCount?: number; streaming?: boolean }) {
+  if (!trace?.length) return null;
+  const elapsedLabel = formatTraceElapsed(trace);
   return (
-    <details className="agent-trace" open>
-      <summary>
-        <span className="trace-summary-main">
-          <ToolOutlined />
-          Pi agent 过程和工具调用
-        </span>
-        <span className="trace-summary-meta">
-          {trace?.length ?? 0} 条记录{eventCount ? ` · ${eventCount} 个事件` : ""}
-        </span>
-      </summary>
-      {trace?.length ? (
-        <div className="trace-list">
-          {trace.map((item) => (
-            <TraceItem key={`${item.type}-${item.id}`} item={item} />
-          ))}
+    <section className={streaming ? "agent-process-wrap streaming" : "agent-process-wrap"}>
+      <details className="agent-process" open={streaming}>
+        <summary className="agent-process-summary">
+          <span className="agent-process-title">{streaming ? "处理中" : "已处理"}</span>
+          {elapsedLabel ? <span className="agent-process-elapsed">{elapsedLabel}</span> : null}
+        </summary>
+        <div className="agent-process-list">
+          {trace?.length ? (
+            trace.map((item, index) => <AgentTraceStep key={traceItemKey(item, index)} item={item} />)
+          ) : (
+            <span className="agent-process-empty">本轮有 {eventCount} 个 Pi 事件</span>
+          )}
         </div>
-      ) : null}
-    </details>
+      </details>
+    </section>
   );
 }
 
-function TraceItem({ item }: { item: AgentTraceItem }) {
+function AgentTraceStep({ item }: { item: AgentTraceItem }) {
+  const hasContent = Boolean(item.detail || item.raw !== undefined);
+  const title = cleanTraceTitle(item.title);
+  const head = (
+    <>
+      <span className={`agent-step-kind ${item.type}`}>{traceKindLabel(item.type)}</span>
+      <span className="agent-step-title">{title || "Pi agent 事件"}</span>
+      {item.status === "running" ? <span className="agent-step-running">处理中</span> : null}
+    </>
+  );
+
+  if (!hasContent) {
+    return (
+      <div className={`agent-step agent-step-static ${item.type}`}>
+        <div className="agent-step-head">{head}</div>
+      </div>
+    );
+  }
+
   return (
-    <details className={`trace-item ${item.type}`} open={item.type !== "tool_update"}>
-      <summary>
-        <span className="trace-icon">{traceIcon(item)}</span>
-        <span className="trace-title">{item.title}</span>
-        {item.status ? <span className={`trace-status ${item.status}`}>{traceStatusText(item.status)}</span> : null}
-      </summary>
-      {item.detail ? <pre className="trace-detail">{item.detail}</pre> : null}
-      {item.raw !== undefined ? <pre className="trace-raw">{formatTraceRaw(item.raw)}</pre> : null}
+    <details className={`agent-step ${item.type}`} open={item.status === "running"}>
+      <summary className="agent-step-head">{head}</summary>
+      <TraceItemContent item={item} />
     </details>
   );
 }
 
-function traceIcon(item: AgentTraceItem) {
-  if (item.type === "thinking") return <BulbOutlined />;
-  if (item.type === "tool_call" || item.type === "tool_update" || item.type === "tool_result") return <ToolOutlined />;
-  if (item.type === "message") return <MessageOutlined />;
-  if (item.status === "running") return <LoadingOutlined />;
-  if (item.status === "done") return <CheckCircleOutlined />;
-  return <CodeOutlined />;
+function TraceItemContent({ item }: { item: AgentTraceItem }) {
+  const showRaw = item.raw !== undefined && item.type !== "tool_call";
+  return (
+    <div className={`trace-item-content ${item.type}`}>
+      {item.detail ? <pre className="trace-detail">{item.detail}</pre> : null}
+      {showRaw ? <pre className="trace-raw">{formatTraceRaw(item.raw)}</pre> : null}
+    </div>
+  );
 }
 
-function traceStatusText(status: AgentTraceItem["status"]) {
-  if (status === "running") return "进行中";
-  if (status === "error") return "失败";
-  return "完成";
+function getProcessTrace(trace: AgentTraceItem[] | undefined, finalAnswer?: string) {
+  if (!trace?.length) return undefined;
+  const answer = finalAnswer?.trim();
+  return trace.filter((item) => {
+    if (item.type !== "message") return true;
+    const title = cleanTraceTitle(item.title).trim();
+    return Boolean(title && title !== answer);
+  });
+}
+
+function traceKindLabel(type: AgentTraceItem["type"]) {
+  switch (type) {
+    case "thinking":
+      return "推理";
+    case "tool_call":
+      return "工具";
+    case "tool_update":
+      return "更新";
+    case "tool_result":
+      return "结果";
+    case "message":
+      return "消息";
+    case "status":
+    default:
+      return "状态";
+  }
+}
+
+function traceItemKey(item: AgentTraceItem, index: number) {
+  if ((item.type === "tool_update" || item.type === "tool_result") && item.id) {
+    const normalizedToolId = item.id.replace(/-(update-\d+|end|result|message-result)$/, "");
+    return `tool_call:${normalizedToolId}`;
+  }
+  return `${item.type}-${item.id || index}`;
+}
+
+function mergeStreamingTrace(trace: AgentTraceItem[], item: AgentTraceItem) {
+  const key = traceItemKey(item, trace.length);
+  const index = trace.findIndex((current, currentIndex) => traceItemKey(current, currentIndex) === key);
+  if (index === -1) return [...trace, item];
+  const next = trace.slice();
+  next[index] = { ...next[index], ...item };
+  return next;
+}
+
+function formatTraceElapsed(trace: AgentTraceItem[]) {
+  const times = trace
+    .map((item) => (item.timestamp ? new Date(item.timestamp).getTime() : Number.NaN))
+    .filter((time) => Number.isFinite(time));
+  if (times.length < 2) return undefined;
+  const elapsedMs = Math.max(...times) - Math.min(...times);
+  if (elapsedMs < 1000) return "0s";
+  const totalSeconds = Math.round(elapsedMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function cleanTraceTitle(title: string) {
+  return title.replace(/^[^\p{L}\p{N}]+/u, "");
 }
 
 function formatTraceRaw(value: unknown) {

@@ -117,8 +117,9 @@ body {
   height: 100%;
   display: grid;
   grid-template-rows: 1fr auto;
-  gap: 12px;
-  padding: 16px;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .settings-pane {
@@ -204,35 +205,49 @@ body {
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-right: 4px;
+  gap: 20px;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 28px 12px;
 }
 
-.message-row {
+.chat-turn {
   width: 100%;
   display: flex;
 }
 
-.message-row.user {
+.chat-turn-user {
   justify-content: flex-end;
 }
 
-.message-row.assistant {
+.chat-turn-assistant {
   justify-content: flex-start;
 }
 
 .assistant-message {
-  width: min(920px, 100%);
+  width: min(820px, 100%);
   color: var(--pi-text);
   font-size: 15px;
   line-height: 1.7;
 }
 
-.assistant-message.loading {
-  display: inline-flex;
+.assistant-message-pending {
+  color: var(--pi-text-muted);
+}
+
+.assistant-working {
+  display: flex;
   align-items: center;
   gap: 8px;
   color: var(--pi-text-muted);
+  font-size: 14px;
+}
+
+.composer-wrap {
+  width: min(980px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 8px 0 24px;
 }
 
 .assistant-content {
@@ -334,94 +349,148 @@ body {
   color: var(--pi-text-muted);
 }
 
-.agent-trace {
-  margin-top: 14px;
+.agent-process-wrap {
+  margin: 0 0 18px;
   border-top: 1px solid var(--pi-border);
   color: var(--pi-text-muted);
 }
 
-.agent-trace > summary {
-  min-height: 38px;
+.agent-process-wrap.streaming {
+  width: min(720px, 100%);
+}
+
+.agent-process {
+  padding-top: 10px;
+}
+
+.agent-process-summary {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  margin-bottom: 2px;
   cursor: pointer;
   user-select: none;
   list-style: none;
 }
 
-.agent-trace > summary::-webkit-details-marker,
-.trace-item > summary::-webkit-details-marker {
+.agent-process-summary::-webkit-details-marker,
+.agent-step-head::-webkit-details-marker {
   display: none;
 }
 
-.trace-summary-main,
-.trace-item > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.agent-process-summary::after,
+.agent-step:not(.agent-step-static) > .agent-step-head::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-right: 2px solid var(--pi-text-muted);
+  border-bottom: 2px solid var(--pi-text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.16s ease;
 }
 
-.trace-summary-meta {
-  font-size: 12px;
+.agent-process[open] > .agent-process-summary::after,
+.agent-step[open] > .agent-step-head::after {
+  transform: rotate(45deg);
+}
+
+.agent-process-title {
   color: var(--pi-text-muted);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
-.trace-list {
+.agent-process-elapsed,
+.agent-process-count {
+  color: var(--pi-text-muted);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.agent-process-list {
   display: grid;
-  gap: 8px;
-  padding: 4px 0 2px;
+  gap: 7px;
+  padding: 8px 0 2px;
 }
 
-.trace-item {
-  border: 1px solid var(--pi-border);
-  border-radius: 8px;
-  background: var(--pi-surface);
-  overflow: hidden;
+.agent-process:not([open]) > .agent-process-list {
+  display: none;
 }
 
-.trace-item > summary {
-  min-height: 34px;
-  padding: 6px 10px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.trace-icon {
-  display: inline-flex;
-  align-items: center;
+.agent-process-empty {
   color: var(--pi-text-muted);
-}
-
-.trace-title {
-  flex: 1;
-  min-width: 0;
-  color: var(--pi-text);
   font-size: 13px;
 }
 
-.trace-status {
-  border-radius: 999px;
-  padding: 1px 7px;
-  font-size: 12px;
+.agent-step {
+  display: grid;
+  gap: 5px;
+  max-width: 100%;
+}
+
+.agent-step-head {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   color: var(--pi-text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-step-static .agent-step-head {
+  cursor: default;
+}
+
+.agent-step-kind {
+  flex: 0 0 auto;
+  min-width: 32px;
+  border: 1px solid var(--pi-border);
+  border-radius: 5px;
+  padding: 1px 5px;
   background: var(--pi-surface-muted);
+  color: var(--pi-text-muted);
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
 }
 
-.trace-status.done {
-  color: #16a34a;
+.agent-step-kind.tool_call,
+.agent-step-kind.tool_update,
+.agent-step-kind.tool_result {
+  color: var(--pi-text);
 }
 
-.trace-status.error {
-  color: #dc2626;
+.agent-step-title {
+  min-width: 0;
+  max-width: min(620px, 100%);
+  overflow: hidden;
+  color: var(--pi-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-step-running {
+  flex: 0 0 auto;
+  color: var(--pi-text-muted);
+  font-size: 12px;
 }
 
 .trace-detail,
 .trace-raw {
   margin: 0;
-  padding: 8px 10px 10px 34px;
-  border-top: 1px solid var(--pi-border);
+  padding: 8px 11px;
+  border: 1px solid var(--pi-border);
+  border-radius: 6px;
   color: var(--pi-text-muted);
   white-space: pre-wrap;
   overflow: auto;
@@ -429,8 +498,24 @@ body {
 }
 
 .trace-raw {
-  max-height: 280px;
+  margin-top: 6px;
+  max-height: 240px;
   background: var(--pi-bg);
+}
+
+.trace-detail {
+  background: var(--pi-surface);
+}
+
+.trace-item-content.tool_call .trace-detail {
+  background: var(--pi-bg);
+}
+
+.trace-item-content {
+  display: grid;
+  gap: 6px;
+  width: min(720px, 100%);
+  padding: 2px 0 7px 39px;
 }
 
 .browser-modal {
@@ -439,6 +524,10 @@ body {
 
 .ant-bubble {
   max-width: min(780px, 86%);
+}
+
+.user-message-bubble.ant-bubble {
+  max-width: min(620px, 84%);
 }
 
 .theme-switch {

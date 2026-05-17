@@ -14,6 +14,14 @@ interface SandboxStreamEvent {
   message?: string;
 }
 
+interface ToolTraceAggregate {
+  item: AgentTraceItem;
+  args?: unknown;
+  updates: unknown[];
+  result?: unknown;
+  message?: unknown;
+}
+
 @Injectable()
 export class SessionsService {
   constructor(
@@ -122,6 +130,8 @@ export class SessionsService {
     await this.sessions.save(session);
 
     const rawEvents: unknown[] = [];
+    const streamingTrace = new Map<string, AgentTraceItem>();
+    const streamingThinkingState = createThinkingState();
     let eventIndex = 0;
     let doneText = "";
     let doneEventCount = 0;
@@ -133,8 +143,9 @@ export class SessionsService {
         onData: (data) => {
           if (data.type === "event" && data.event) {
             rawEvents.push(data.event);
-            const traceItem = buildSingleTraceItem(data.event, eventIndex++);
+            const traceItem = buildSingleTraceItem(data.event, eventIndex++, streamingThinkingState);
             if (traceItem) {
+              streamingTrace.set(`${traceItem.type}:${traceItem.id}`, traceItem);
               try { callbacks.onTraceItem(traceItem); } catch { /* ignore */ }
             }
           } else if (data.type === "done") {
@@ -143,7 +154,7 @@ export class SessionsService {
           }
         },
         onComplete: async () => {
-          const assistantTrace = buildAgentTrace(rawEvents);
+          const assistantTrace = compactTrace(buildAgentTrace(rawEvents));
           const assistantText = doneText;
 
           if (assistantText) {
@@ -162,7 +173,7 @@ export class SessionsService {
 
           callbacks.onComplete({
             assistantText,
-            assistantTrace,
+            assistantTrace: assistantTrace.length ? assistantTrace : Array.from(streamingTrace.values()),
             eventCount: doneEventCount
           });
         },
@@ -186,7 +197,21 @@ export class SessionsService {
 const SENSITIVE_KEY_PATTERN = /(api[-_ ]?key|token|authorization|password|secret|credential|cookie|thought|signature)/i;
 
 /** Build a single trace item from a streaming event for real-time display. */
-function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | null {
+interface ThinkingState {
+  activeSequenceByContentIndex: Map<number, number>;
+  buffersBySequence: Map<number, string>;
+  nextSequence: number;
+}
+
+function createThinkingState(): ThinkingState {
+  return {
+    activeSequenceByContentIndex: new Map(),
+    buffersBySequence: new Map(),
+    nextSequence: 0
+  };
+}
+
+function buildSingleTraceItem(event: unknown, index: number, thinkingState: ThinkingState): AgentTraceItem | null {
   if (!isRecord(event)) return null;
 
   const eventType = readString(event.type) ?? "event";
@@ -200,18 +225,31 @@ function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | n
   if (eventType === "message_update") {
     const assistantEvent = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
     const assistantEventType = readString(assistantEvent?.type);
+    const contentIndex = readNumber(assistantEvent?.contentIndex) ?? 0;
 
     if (assistantEventType === "thinking_start") {
-      return { id: `${index}-thinking-start`, type: "thinking", title: "🧠 推理中…", status: "running", timestamp, raw: sanitizeForClient(event) };
+      const sequence = thinkingState.nextSequence++;
+      thinkingState.activeSequenceByContentIndex.set(contentIndex, sequence);
+      thinkingState.buffersBySequence.set(sequence, "");
+      const thinkingId = thinkingTraceId(contentIndex, sequence);
+      return { id: thinkingId, type: "thinking", title: "推理中…", status: "running", timestamp, raw: sanitizeForClient(event) };
     }
     if (assistantEventType === "thinking_delta" && typeof assistantEvent?.delta === "string") {
-      return { id: `${index}-thinking-delta`, type: "thinking", title: assistantEvent.delta, status: "running", timestamp, raw: sanitizeForClient(event) };
+      const sequence = getActiveThinkingSequence(contentIndex, thinkingState);
+      const nextText = `${thinkingState.buffersBySequence.get(sequence) ?? ""}${assistantEvent.delta}`;
+      thinkingState.buffersBySequence.set(sequence, nextText);
+      const thinkingId = thinkingTraceId(contentIndex, sequence);
+      return { id: thinkingId, type: "thinking", title: summarizeInline(nextText) || "推理中…", detail: nextText, status: "running", timestamp, raw: sanitizeForClient(event) };
     }
     if (assistantEventType === "thinking_end") {
-      const thinkingContent = typeof assistantEvent?.content === "string" ? assistantEvent.content : undefined;
-      return { id: `${index}-thinking-end`, type: "thinking", title: "推理完成", detail: thinkingContent, status: "done", timestamp, raw: sanitizeForClient(event) };
+      const sequence = getActiveThinkingSequence(contentIndex, thinkingState);
+      const thinkingContent = typeof assistantEvent?.content === "string" ? assistantEvent.content : thinkingState.buffersBySequence.get(sequence);
+      if (thinkingContent) thinkingState.buffersBySequence.set(sequence, thinkingContent);
+      const thinkingId = thinkingTraceId(contentIndex, sequence);
+      thinkingState.activeSequenceByContentIndex.delete(contentIndex);
+      return { id: thinkingId, type: "thinking", title: summarizeInline(thinkingContent) || "推理完成", detail: thinkingContent, status: "done", timestamp, raw: sanitizeForClient(event) };
     }
-    if (assistantEventType === "toolcall_end" && isRecord(assistantEvent?.toolCall)) {
+  if (assistantEventType === "toolcall_end" && isRecord(assistantEvent?.toolCall)) {
       const toolName = readString(assistantEvent.toolCall.name) ?? "tool";
       return {
         id: readString(assistantEvent.toolCall.id) ?? `${index}-toolcall-end`,
@@ -220,7 +258,7 @@ function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | n
         detail: stringifyDetail(assistantEvent.toolCall.arguments),
         status: "running",
         timestamp,
-        raw: sanitizeForClient(event)
+        raw: undefined
       };
     }
     if (assistantEventType === "text_end" && typeof assistantEvent?.content === "string") {
@@ -231,27 +269,27 @@ function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | n
 
   if (eventType === "tool_execution_start") {
     const toolName = readString(event.toolName) ?? "tool";
-    return {
+      return {
       id: readString(event.toolCallId) ?? `${index}-tool-start`,
       type: "tool_call",
       title: `🔧 ${toolName}`,
       detail: stringifyDetail(event.args),
       status: "running",
       timestamp,
-      raw: sanitizeForClient(event)
+      raw: undefined
     };
   }
 
   if (eventType === "tool_execution_end") {
     const toolName = readString(event.toolName) ?? "tool";
-    return {
+      return {
       id: `${readString(event.toolCallId) ?? index}-end`,
       type: "tool_result",
       title: `📋 ${toolName} 结果`,
       detail: summarizeToolResult(event.result),
       status: event.isError === true ? "error" : "done",
       timestamp,
-      raw: sanitizeForClient(event)
+      raw: undefined
     };
   }
 
@@ -261,6 +299,9 @@ function buildSingleTraceItem(event: unknown, index: number): AgentTraceItem | n
 function buildAgentTrace(events: unknown[] = []): AgentTraceItem[] {
   const trace: AgentTraceItem[] = [];
   const seen = new Set<string>();
+  const thinkingState = createThinkingState();
+  const thinkingBySequence = new Map<number, AgentTraceItem>();
+  const toolById = new Map<string, ToolTraceAggregate>();
 
   const add = (item: AgentTraceItem) => {
     const dedupeKey = `${item.type}:${item.id}`;
@@ -280,7 +321,12 @@ function buildAgentTrace(events: unknown[] = []): AgentTraceItem[] {
     }
 
     if (eventType === "turn_end") {
-      extractMessageTrace(event.message, `${index}-turn-message`, timestamp, add);
+      extractMessageTrace(event.message, `${index}-turn-message`, timestamp, add, {
+        includeThinking: false,
+        toolById,
+        trace,
+        seen
+      });
       return;
     }
 
@@ -288,97 +334,126 @@ function buildAgentTrace(events: unknown[] = []): AgentTraceItem[] {
       const assistantEvent = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
       const assistantEventType = readString(assistantEvent?.type);
       if (assistantEventType?.startsWith("thinking_")) {
+        const contentIndex = readNumber(assistantEvent?.contentIndex) ?? 0;
+        let sequence: number;
+        if (assistantEventType === "thinking_start") {
+          sequence = thinkingState.nextSequence++;
+          thinkingState.activeSequenceByContentIndex.set(contentIndex, sequence);
+          thinkingState.buffersBySequence.set(sequence, "");
+        } else {
+          sequence = getActiveThinkingSequence(contentIndex, thinkingState);
+        }
         const thinkingContent = assistantEventType === "thinking_end" && typeof assistantEvent?.content === "string"
           ? assistantEvent.content
           : undefined;
-        add({
-          id: `${index}-thinking-${readNumber(assistantEvent?.contentIndex) ?? 0}`,
+        const previous = thinkingBySequence.get(sequence);
+        const delta = assistantEventType === "thinking_delta" && typeof assistantEvent?.delta === "string" ? assistantEvent.delta : "";
+        const detail = thinkingContent ?? `${previous?.detail ?? ""}${delta}`;
+        thinkingState.buffersBySequence.set(sequence, detail);
+        const nextItem: AgentTraceItem = {
+          id: thinkingTraceId(contentIndex, sequence),
           type: "thinking",
-          title: assistantEventType === "thinking_end" ? "推理完成" : "推理中…",
-          detail: thinkingContent,
+          title: summarizeInline(detail) || (assistantEventType === "thinking_end" ? "推理完成" : "推理中…"),
+          detail,
           status: assistantEventType === "thinking_end" ? "done" : "running",
           timestamp,
           raw: sanitizeForClient(event)
-        });
+        };
+        if (!previous) {
+          thinkingBySequence.set(sequence, nextItem);
+          add(nextItem);
+        } else {
+          Object.assign(previous, nextItem);
+        }
+        if (assistantEventType === "thinking_end") {
+          thinkingState.activeSequenceByContentIndex.delete(contentIndex);
+        }
       }
       if (assistantEventType === "toolcall_end" && isRecord(assistantEvent?.toolCall)) {
-        addToolCall(assistantEvent.toolCall, `${index}-toolcall-end`, timestamp, event, add);
+        upsertToolTrace(toolById, trace, seen, {
+          id: readString(assistantEvent.toolCall.id) ?? `${index}-toolcall-end`,
+          name: readString(assistantEvent.toolCall.name) ?? "tool",
+          args: assistantEvent.toolCall.arguments,
+          status: "running",
+          timestamp,
+          raw: event
+        });
       }
-      extractMessageTrace(event.message, `${index}-message-update`, timestamp, add);
+      extractMessageTrace(event.message, `${index}-message-update`, timestamp, add, { includeThinking: false, includeText: false });
       return;
     }
 
     if (eventType === "message_start" || eventType === "message_end") {
-      extractMessageTrace(event.message, `${index}-${eventType}`, timestamp, add);
+      extractMessageTrace(event.message, `${index}-${eventType}`, timestamp, add, {
+        includeThinking: false,
+        toolById,
+        trace,
+        seen
+      });
       return;
     }
 
     if (eventType === "tool_execution_start") {
       const toolName = readString(event.toolName) ?? "tool";
-      add({
+      upsertToolTrace(toolById, trace, seen, {
         id: readString(event.toolCallId) ?? `${index}-tool-start`,
-        type: "tool_call",
-        title: `调用工具：${toolName}`,
-        detail: stringifyDetail(event.args),
+        name: toolName,
+        args: event.args,
         status: "running",
         timestamp,
-        raw: sanitizeForClient(event)
+        raw: event
       });
       return;
     }
 
     if (eventType === "tool_execution_update") {
       const toolName = readString(event.toolName) ?? "tool";
-      add({
-        id: `${readString(event.toolCallId) ?? index}-update-${index}`,
-        type: "tool_update",
-        title: `工具更新：${toolName}`,
-        detail: stringifyDetail(event.partialResult),
+      upsertToolTrace(toolById, trace, seen, {
+        id: readString(event.toolCallId) ?? `${index}-tool-update`,
+        name: toolName,
+        update: event.partialResult,
         status: "running",
         timestamp,
-        raw: sanitizeForClient(event)
+        raw: event
       });
       return;
     }
 
     if (eventType === "tool_execution_end") {
       const toolName = readString(event.toolName) ?? "tool";
-      add({
-        id: `${readString(event.toolCallId) ?? index}-end`,
-        type: "tool_result",
-        title: `工具结果：${toolName}`,
-        detail: summarizeToolResult(event.result),
+      upsertToolTrace(toolById, trace, seen, {
+        id: readString(event.toolCallId) ?? `${index}-tool-end`,
+        name: toolName,
+        result: event.result,
         status: event.isError === true ? "error" : "done",
         timestamp,
-        raw: sanitizeForClient(event)
+        raw: event
       });
       return;
     }
 
     if (eventType === "tool_call") {
       const toolName = readString(event.toolName) ?? "tool";
-      add({
+      upsertToolTrace(toolById, trace, seen, {
         id: readString(event.toolCallId) ?? `${index}-tool-call`,
-        type: "tool_call",
-        title: `准备工具：${toolName}`,
-        detail: stringifyDetail(event.input),
+        name: toolName,
+        args: event.input,
         status: "running",
         timestamp,
-        raw: sanitizeForClient(event)
+        raw: event
       });
       return;
     }
 
     if (eventType === "tool_result") {
       const toolName = readString(event.toolName) ?? "tool";
-      add({
-        id: `${readString(event.toolCallId) ?? index}-result`,
-        type: "tool_result",
-        title: `工具返回：${toolName}`,
-        detail: summarizeToolResult(event.content),
+      upsertToolTrace(toolById, trace, seen, {
+        id: readString(event.toolCallId) ?? `${index}-tool-result`,
+        name: toolName,
+        result: event.content,
         status: event.isError === true ? "error" : "done",
         timestamp,
-        raw: sanitizeForClient(event)
+        raw: event
       });
       return;
     }
@@ -389,15 +464,23 @@ function buildAgentTrace(events: unknown[] = []): AgentTraceItem[] {
     }
   });
 
-  return trace;
+  return compactTrace(trace);
 }
 
-function extractMessageTrace(message: unknown, idPrefix: string, timestamp: string | undefined, add: (item: AgentTraceItem) => void) {
+function extractMessageTrace(
+  message: unknown,
+  idPrefix: string,
+  timestamp: string | undefined,
+  add: (item: AgentTraceItem) => void,
+  options: { includeThinking?: boolean; includeText?: boolean; toolById?: Map<string, ToolTraceAggregate>; trace?: AgentTraceItem[]; seen?: Set<string> } = {}
+) {
   if (!isRecord(message)) return;
+  const includeThinking = options.includeThinking ?? true;
+  const includeText = options.includeText ?? true;
   if (message.role === "assistant" && Array.isArray(message.content)) {
     message.content.forEach((block, index) => {
       if (!isRecord(block)) return;
-      if (block.type === "thinking") {
+      if (includeThinking && block.type === "thinking") {
         add({
           id: `${idPrefix}-thinking-${index}`,
           type: "thinking",
@@ -408,7 +491,7 @@ function extractMessageTrace(message: unknown, idPrefix: string, timestamp: stri
           raw: sanitizeForClient(block)
         });
       }
-      if (block.type === "text" && typeof block.text === "string") {
+      if (includeText && block.type === "text" && typeof block.text === "string") {
         add({
           id: `${idPrefix}-text-${index}`,
           type: "message",
@@ -418,21 +501,45 @@ function extractMessageTrace(message: unknown, idPrefix: string, timestamp: stri
           raw: sanitizeForClient(block)
         });
       }
-      if (block.type === "toolCall") addToolCall(block, `${idPrefix}-tool-${index}`, timestamp, block, add);
+      if (block.type === "toolCall") {
+        if (options.toolById && options.trace && options.seen) {
+          upsertToolTrace(options.toolById, options.trace, options.seen, {
+            id: readString(block.id) ?? readString(block.toolCallId) ?? `${idPrefix}-tool-${index}`,
+            name: readString(block.name) ?? readString(block.toolName) ?? "tool",
+            args: block.arguments ?? block.input,
+            status: "running",
+            timestamp,
+            raw: block
+          });
+        } else {
+          addToolCall(block, `${idPrefix}-tool-${index}`, timestamp, block, add);
+        }
+      }
     });
   }
 
   if (message.role === "toolResult") {
     const toolName = readString(message.toolName) ?? "tool";
-    add({
-      id: `${readString(message.toolCallId) ?? idPrefix}-message-result`,
-      type: "tool_result",
-      title: `工具消息：${toolName}`,
-      detail: summarizeToolResult(message.content),
-      status: message.isError === true ? "error" : "done",
-      timestamp,
-      raw: sanitizeForClient(message)
-    });
+    if (options.toolById && options.trace && options.seen) {
+      upsertToolTrace(options.toolById, options.trace, options.seen, {
+        id: readString(message.toolCallId) ?? `${idPrefix}-message-result`,
+        name: toolName,
+        message: message.content,
+        status: message.isError === true ? "error" : "done",
+        timestamp,
+        raw: message
+      });
+    } else {
+      add({
+        id: readString(message.toolCallId) ?? `${idPrefix}-message-result`,
+        type: "tool_result",
+        title: `工具消息：${toolName}`,
+        detail: buildToolTraceDetail(undefined, [], undefined, message.content),
+        status: message.isError === true ? "error" : "done",
+        timestamp,
+        raw: sanitizeForClient(message)
+      });
+    }
   }
 }
 
@@ -447,6 +554,84 @@ function addToolCall(block: Record<string, unknown>, fallbackId: string, timesta
     timestamp,
     raw: sanitizeForClient(raw)
   });
+}
+
+function upsertToolTrace(
+  toolById: Map<string, ToolTraceAggregate>,
+  trace: AgentTraceItem[],
+  seen: Set<string>,
+  input: {
+    id: string;
+    name: string;
+    args?: unknown;
+    update?: unknown;
+    result?: unknown;
+    message?: unknown;
+    status?: AgentTraceItem["status"];
+    timestamp?: string;
+    raw?: unknown;
+  }
+) {
+  const key = `tool_call:${input.id}`;
+  let aggregate = toolById.get(input.id);
+  if (!aggregate) {
+    aggregate = {
+      item: {
+        id: input.id,
+        type: "tool_call",
+        title: `工具调用：${input.name}`,
+        status: input.status ?? "running",
+        timestamp: input.timestamp,
+        raw: input.raw === undefined ? undefined : sanitizeForClient(input.raw)
+      },
+      updates: []
+    };
+    toolById.set(input.id, aggregate);
+    if (!seen.has(key)) {
+      seen.add(key);
+      trace.push(aggregate.item);
+    }
+  }
+
+  if (input.args !== undefined && (!hasUsefulToolPayload(aggregate.args) || hasUsefulToolPayload(input.args))) aggregate.args = input.args;
+  if (input.update !== undefined) aggregate.updates.push(input.update);
+  if (input.result !== undefined) aggregate.result = input.result;
+  if (input.message !== undefined) aggregate.message = input.message;
+
+  aggregate.item.title = buildToolTraceTitle(input.name, input.status ?? aggregate.item.status);
+  aggregate.item.detail = buildToolTraceDetail(aggregate.args, aggregate.updates, aggregate.result, aggregate.message);
+  aggregate.item.status = input.status ?? aggregate.item.status;
+  aggregate.item.timestamp = input.timestamp ?? aggregate.item.timestamp;
+  aggregate.item.raw = undefined;
+}
+
+function buildToolTraceTitle(toolName: string, status: AgentTraceItem["status"] | undefined) {
+  const suffix = status === "error" ? "失败" : status === "done" ? "完成" : "处理中";
+  return `工具调用：${toolName} ${suffix}`;
+}
+
+function buildToolTraceDetail(args: unknown, updates: unknown[], result: unknown, message: unknown) {
+  const parts: string[] = [];
+  const argsText = stringifyDetail(args);
+  if (argsText) parts.push(`参数\n${argsText}`);
+
+  const updateTexts = updates.map((item) => stringifyDetail(item)).filter(Boolean);
+  if (updateTexts.length) parts.push(`更新\n${updateTexts.join("\n\n")}`);
+
+  const resultText = summarizeToolResult(result);
+  if (resultText) parts.push(`返回\n${resultText}`);
+
+  const messageText = summarizeToolResult(message);
+  if (messageText) parts.push(`工具消息\n${messageText}`);
+
+  return parts.join("\n\n");
+}
+
+function hasUsefulToolPayload(value: unknown) {
+  if (value === undefined || value === null || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (isRecord(value)) return Object.keys(value).length > 0;
+  return true;
 }
 
 function sanitizeEventsForClient(events: unknown[] = []) {
@@ -471,6 +656,42 @@ function summarizeToolResults(value: unknown) {
 function summarizeToolResult(value: unknown) {
   const text = extractText(value);
   return text || stringifyDetail(value);
+}
+
+function compactTrace(trace: AgentTraceItem[]) {
+  const output: AgentTraceItem[] = [];
+  const byKey = new Map<string, AgentTraceItem>();
+  for (const item of trace) {
+    const key = `${item.type}:${item.id}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      Object.assign(existing, item);
+      continue;
+    }
+    byKey.set(key, item);
+    output.push(item);
+  }
+  return output;
+}
+
+function getActiveThinkingSequence(contentIndex: number, state: ThinkingState) {
+  const active = state.activeSequenceByContentIndex.get(contentIndex);
+  if (active !== undefined) return active;
+  const sequence = state.nextSequence++;
+  state.activeSequenceByContentIndex.set(contentIndex, sequence);
+  state.buffersBySequence.set(sequence, "");
+  return sequence;
+}
+
+function thinkingTraceId(contentIndex: number, sequence: number) {
+  return `thinking-${sequence}-${contentIndex}`;
+}
+
+function summarizeInline(value: string | undefined) {
+  if (!value) return undefined;
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return undefined;
+  return compact.length > 140 ? `${compact.slice(0, 137)}...` : compact;
 }
 
 function extractText(value: unknown): string | undefined {
